@@ -1,35 +1,153 @@
 # AI Agent Guidelines
 
-This document provides guidelines and important information for AI agents working on this project.
+This document provides guidelines for AI agents working on this project. Read this at the start of each session.
 
-## Package Structure
+---
+
+## 🚀 GOLDEN RULES
+
+### 1. Always Discuss Before Implementing
+
+**Never start implementing without first presenting a plan and getting user validation.**
+
+Before writing any code:
+1. Analyze the current state of the codebase
+2. Present a clear plan with proposed changes
+3. Wait for explicit user validation before proceeding
+
+### 2. Pre-Commit Checklist
+
+**Before considering a task complete and presenting results to the user, always run:**
+
+```bash
+go generate ./...
+go build ./...
+go test ./...
+go vet ./...
+```
+
+**And also check diagnostics:**
+- Use the `diagnostics` tool to check for gopls linting suggestions
+- Address any simplifications or improvements suggested (e.g., `strings.Cut`, deprecated APIs, style issues)
+
+**All checks must pass** before considering work complete.
+
+**When to run:** You don't need to run these after every single edit. Run them when you're ready to present final results to the user.
+
+**Reporting:** Do not report successful verification checks to the user. Only mention issues if something fails and needs fixing.
+
+### 3. Proactive AGENT.md Updates
+
+At the end of successful sessions (everything builds, tests pass, stable conclusions reached):
+
+1. Present a draft synthesis of what should be added to AGENT.md
+2. Ask for approval before making changes
+
+---
+
+## 1. Project Overview
+
+### Package Structure
 
 ```
 msiaf/
-├── scan.go                  # Scanning functionality + value-added methods
+├── scan.go                  # Directory/file discovery (scanning)
 ├── scan_test.go
+├── globalconfig.go          # Global config parsing (MSIAfterburner.cfg)
+├── globalconfig_test.go
 └── catalog/                 # GPU catalog subpackage
     ├── catalog.go           # Lookup functions (hand-written)
     ├── catalog_generated.go # Auto-generated data (DO NOT EDIT)
     └── catalog_test.go      # Tests
 ```
 
-The `msiaf` package is organized with:
-- **Root package** (`msiaf/`): Scanning functionality + value-added methods on types
+- **Root package** (`msiaf/`): Scanning, config parsing, value-added methods on types
 - **Catalog subpackage** (`msiaf/catalog/`): Pure GPU lookup functions (importable by anyone)
 
-## API Design Philosophy
+### File Organization Principle
+
+**"Separate concerns by scope - new scopes deserve new files."**
+
+| Scope | File | Purpose |
+|-------|------|---------|
+| Directory/File discovery | `scan.go` | Finding and listing files, parsing filenames |
+| File content parsing | `globalconfig.go` | Parsing MSIAfterburner.cfg contents |
+| File content parsing | `profile.go` | Parsing hardware profile .cfg contents (future) |
+| GPU data lookups | `catalog/` | Auto-generated GPU database lookups |
+
+```go
+// ✅ Good: scan.go handles discovery only
+result, err := msiaf.Scan(dir) // Finds files, parses filenames
+
+// ✅ Good: globalconfig.go handles config file parsing
+config, err := msiaf.ParseGlobalConfig(path) // Parses file contents
+
+// ❌ Bad: Mixing concerns
+// Don't put config parsing logic in scan.go
+// Don't put file discovery logic in globalconfig.go
+```
+
+---
+
+## 2. API Design Philosophy
+
+### Core Principles
 
 **"Don't hide anything, but pack convenience helpers where users will naturally find them."**
-
-This principle guides the package design:
 
 1. **Transparency**: All raw data (VendorID, DeviceID, SubsystemID, etc.) is directly accessible on structs
 2. **Discoverability**: Helper methods are on the objects users already manipulate (`HardwareProfileInfo`)
 3. **Flexibility**: Users can import `catalog` directly if they want raw lookups without scanning
 4. **No unnecessary wrappers**: Avoid thin wrapper functions that just re-export from subpackages
 
-### Good Design Example
+### Strong Typing Philosophy
+
+**"Parse everything during parsing - no lazy helper methods."**
+
+#### Type Conversion Guidelines
+
+| Config Format | Go Type | Example |
+|--------------|---------|---------|
+| `0`/`1` | `bool` | `StartWithWindows=1` → `true` |
+| Decimal int | `int` | `LogLimit=10` → `10` |
+| Hex int | `uint32` | `VideoCaptureFramesize=00000002h` → `2` |
+| Hex blob | `[]byte` | `SwAutoFanControlCurve=...h` → decoded bytes |
+| Time (ms) | `time.Duration` | `HwPollPeriod=1000` → `1 * time.Second` |
+| Time (sec) | `time.Duration` | `VideoPrerecordTimeLimit=600` → `10 * time.Minute` |
+| Hex timestamp | `time.Time` | `LastUpdateCheck=69B52594h` → `time.Time` |
+| Path | `string` | `BenchmarkPath=%ABDir%\Benchmark.txt` (keep variables as-is) |
+| Enum/Code | `string` | `Language=FR`, `VideoCaptureFormat=MJPG` |
+
+#### Design Rationale
+
+```go
+// ✅ Good: Field is already time.Duration, ready to use
+config.Settings.HwPollPeriod // time.Duration (1s)
+fmt.Println(config.Settings.HwPollPeriod) // "1s"
+
+// ❌ Bad: Requires helper method to convert
+config.Settings.HwPollPeriodMs // int (1000) - user must convert manually
+```
+
+```go
+// ✅ Good: All fields are named, IDE discovers them
+type Settings struct {
+    Language              string
+    StartWithWindows      bool
+    HwPollPeriod          time.Duration
+    SwAutoFanControlCurve []byte
+    // ... ALL fields, no exceptions
+}
+
+// ❌ Bad: Lazy fallback map
+type Settings struct {
+    Language string
+    // ... some fields
+    Raw map[string]string // Don't do this!
+}
+```
+
+### Good Design Examples
 
 ```go
 // ✅ Good: Value-added method on the type users already have
@@ -41,8 +159,92 @@ import "github.com/hekmon/aiup/msiaf/catalog"
 gpuInfo := catalog.LookupGPU("10DE", "2B85")
 
 // ❌ Bad: Unnecessary thin wrapper in root package
-// (Don't create msiaf.LookupGPU() that just calls catalog.LookupGPU())
+// Don't create msiaf.LookupGPU() that just calls catalog.LookupGPU()
 ```
+
+---
+
+## 3. GPU Catalog System
+
+### Overview
+
+The GPU catalog (`msiaf/catalog/catalog_generated.go`) is **auto-generated** and should **NEVER** be edited manually. It is generated from the [pci-ids database](https://pci-ids.ucw.cz/v2.2/pci.ids).
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `cmd/gencatalog/main.go` | Generator tool |
+| `msiaf/scan.go` | Profile scanning logic + `HardwareProfileInfo` methods |
+| `msiaf/catalog/catalog.go` | Lookup functions (hand-written) |
+| `msiaf/catalog/catalog_generated.go` | Auto-generated data (DO NOT EDIT) |
+| `msiaf/catalog/catalog_test.go` | Tests using actual pci-ids device IDs |
+
+### Regenerating the Catalog
+
+```bash
+cd aiup
+go generate ./msiaf/...
+```
+
+This will:
+1. Fetch the latest pci-ids database
+2. Filter for NVIDIA, AMD, and Intel GPUs (MSI Afterburner supported vendors)
+3. Clean up device names (remove chip codenames)
+4. Generate `msiaf/catalog/catalog_generated.go` with ~2,200+ GPU entries
+
+### Important Conventions
+
+| Convention | Detail |
+|------------|--------|
+| **Device IDs are lowercase** | pci-ids uses lowercase hex (e.g., `10de_2b85`). Lookup functions normalize input. |
+| **Device IDs change** | IDs in pci-ids may differ from other databases. Verify against generated catalog. |
+| **Name formatting** | Generator removes chip codenames (AD104, Navi 21, DG2, etc.) for cleaner names. |
+| **Filtering** | Only actual GPU/display devices included. Non-GPU devices filtered out. |
+| **Vendor IDs** | NVIDIA: `10de`, AMD: `1002`, Intel: `8086` |
+
+### Testing Guidelines
+
+- Use device IDs from the **generated** catalog, not hardcoded values
+- Run `go generate` before running tests
+- Test expectations should match pci-ids data, not external databases
+
+```go
+// Good: Uses actual pci-ids device ID
+{"2B85", "GeForce RTX 5090"}
+
+// Bad: May not match pci-ids
+{"2786", "GeForce RTX 4090"} // Wrong ID in pci-ids
+```
+
+### Common Pitfalls
+
+| Issue | Solution |
+|-------|----------|
+| Editing generated files | Never edit `catalog_generated.go` manually |
+| Case sensitivity | Always use `strings.ToLower()` when looking up device IDs |
+| Stale catalog | If tests fail with "unknown GPU", run `go generate` |
+| Import errors | Import as `github.com/hekmon/aiup/msiaf/catalog`, not root package |
+
+---
+
+## 4. Workflow Guidelines
+
+### When Working on GPU-Related Features
+
+1. **Check if catalog needs updating**: Run `go generate ./msiaf/...`
+2. **Verify device IDs**: Look up actual device IDs in `catalog_generated.go`
+3. **Test thoroughly**: Run `go test ./msiaf/...` after any changes
+4. **Commit generated file**: Unlike typical generated files, `catalog_generated.go` should be committed
+
+### When Moving or Restructuring Files
+
+1. Update `package` declarations in moved files
+2. Update `//go:generate` paths to account for new directory depth
+3. Update generator (`cmd/gencatalog/main.go`) if it hardcodes package names
+4. Regenerate: `go generate ./...`
+5. Verify build: `go build ./...`
+6. Verify tests: `go test ./...`
 
 ### When to Add Root Package Functions
 
@@ -58,74 +260,26 @@ The `catalog` subpackage should:
 - Be importable directly by users who need raw lookups
 - Stay focused on GPU/manufacturer data resolution
 
-## GPU Catalog System
+### Adding New Features
 
-### Auto-Generated Catalog
+**Extending the catalog system:**
+1. Modify `cmd/gencatalog/main.go` to add new logic
+2. Re-run generator: `go generate ./msiaf/...`
+3. Update tests in `msiaf/catalog/catalog_test.go`
+4. Verify with `go build ./...` and `go test ./...`
 
-The GPU catalog (`msiaf/catalog/catalog_generated.go`) is **auto-generated** and should **NEVER** be edited manually. It is generated from the [pci-ids database](https://pci-ids.ucw.cz/v2.2/pci.ids).
+**Extending the scanning functionality:**
+1. Add functions/methods to `msiaf/scan.go`
+2. Use catalog subpackage for GPU lookups (don't duplicate logic)
+3. Add methods to `HardwareProfileInfo` for value-added helpers
+4. Update tests in `msiaf/scan_test.go`
+5. Verify with `go build ./...` and `go test ./...`
 
-**To regenerate the catalog:**
-```bash
-cd aiup
-go generate ./msiaf/...
-```
+---
 
-This will:
-1. Fetch the latest pci-ids database
-2. Filter for NVIDIA, AMD, and Intel GPUs (MSI Afterburner supported vendors)
-3. Clean up device names (remove chip codenames)
-4. Generate `msiaf/catalog/catalog_generated.go` with ~2,200+ GPU entries
+## 5. Code Quality Guidelines
 
-### Key Files
-
-- `cmd/gencatalog/main.go` - Generator tool
-- `msiaf/scan.go` - Profile scanning logic + `HardwareProfileInfo` methods
-- `msiaf/catalog/catalog.go` - Lookup functions (hand-written)
-- `msiaf/catalog/catalog_generated.go` - Auto-generated data (DO NOT EDIT)
-- `msiaf/catalog/catalog_test.go` - Tests using actual pci-ids device IDs
-
-### Important Conventions
-
-1. **Device IDs are lowercase**: The pci-ids database uses lowercase hex (e.g., `10de_2b85`). The lookup functions automatically normalize input to lowercase.
-
-2. **Device IDs change**: Device IDs in pci-ids may differ from other databases (TechPowerUp, etc.). Always verify against the generated catalog or re-run the generator.
-
-3. **Name formatting**: The generator removes chip codenames (AD104, Navi 21, DG2, etc.) for cleaner user-facing names.
-
-4. **Filtering**: Only actual GPU/display devices are included. Non-GPU devices (audio, USB, network, PCIe switches) are filtered out.
-
-### Testing
-
-When updating tests:
-- Use device IDs from the **generated** catalog, not hardcoded values
-- Run `go generate` before running tests
-- Test expectations should match pci-ids data, not external databases
-
-Example:
-```go
-// Good: Uses actual pci-ids device ID
-{"2B85", "GeForce RTX 5090"}
-
-// Bad: May not match pci-ids
-{"2786", "GeForce RTX 4090"} // Wrong ID in pci-ids
-```
-
-### Common Pitfalls
-
-1. **Editing generated files**: Never edit `catalog_generated.go` manually - changes will be lost on next generation.
-
-2. **Case sensitivity**: Always use `strings.ToLower()` when looking up device IDs.
-
-3. **Stale catalog**: If tests fail with "unknown GPU", run `go generate` to update the catalog.
-
-4. **Vendor IDs**: 
-   - NVIDIA: `10de`
-   - AMD: `1002`
-   - Intel: `8086`
-
-## Code Quality Guidelines
-
-### Use fmt.Fprintf for String Building
+### String Building
 
 When building strings with `strings.Builder`, use `fmt.Fprintf()` instead of `WriteString(fmt.Sprintf())`:
 
@@ -156,65 +310,9 @@ When moving files to subpackages:
 3. Update `go:generate` paths to reflect new directory depth
 4. Verify imports in dependent files
 
-## Workflow for AI Agents
+---
 
-### Mandatory Pre-Commit Checklist
-
-Before considering a task complete, **always** run:
-
-```bash
-# 1. Regenerate auto-generated files
-go generate ./...
-
-# 2. Build everything
-go build ./...
-
-# 3. Run all tests
-go test ./...
-
-# 4. (Optional) Run linter if available
-go vet ./...
-```
-
-**All four steps must pass** before committing changes.
-
-### When Working on GPU-Related Features
-
-1. **Check if catalog needs updating**: Run `go generate ./msiaf/...` to ensure you have the latest data.
-
-2. **Verify device IDs**: Look up actual device IDs in `catalog_generated.go`, don't assume them.
-
-3. **Test thoroughly**: Run `go test ./msiaf/...` after any changes.
-
-4. **Commit generated file**: Unlike typical generated files, `catalog_generated.go` should be committed to ensure consistent behavior across environments.
-
-### When Moving or Restructuring Files
-
-1. Update `package` declarations in moved files
-2. Update `//go:generate` paths to account for new directory depth
-3. Update generator (`cmd/gencatalog/main.go`) if it hardcodes package names
-4. Regenerate: `go generate ./...`
-5. Verify build: `go build ./...`
-6. Verify tests: `go test ./...`
-
-### Adding New Features
-
-If extending the catalog system:
-
-1. Modify `cmd/gencatalog/main.go` to add new logic
-2. Re-run generator: `go generate ./msiaf/...`
-3. Update tests in `msiaf/catalog/catalog_test.go`
-4. Verify with `go build ./...` and `go test ./...`
-
-If extending the scanning functionality:
-
-1. Add functions/methods to `msiaf/scan.go`
-2. Use catalog subpackage for GPU lookups (don't duplicate logic)
-3. Add methods to `HardwareProfileInfo` for value-added helpers
-4. Update tests in `msiaf/scan_test.go`
-5. Verify with `go build ./...` and `go test ./...`
-
-## API Usage Examples
+## 6. API Usage Examples
 
 ### Basic Scanning
 
@@ -270,23 +368,14 @@ func main() {
 }
 ```
 
-## Troubleshooting
+---
 
-### "unknown GPU" errors
-- Run `go generate ./msiaf/...` to update the catalog
+## 7. Troubleshooting
 
-### Build fails with "package not found"
-- Check that all moved files have correct `package` declarations
-- Verify import paths are updated
-
-### go generate fails
-- Check `//go:generate` path is correct for the file's directory depth
-- Verify `cmd/gencatalog/main.go` exists and is accessible
-
-### Tests fail after moving files
-- Ensure generator outputs correct package name
-- Re-run `go generate ./...` to regenerate files with correct package
-
-### Import errors with catalog subpackage
-- Import as: `github.com/hekmon/aiup/msiaf/catalog`
-- Not: `github.com/hekmon/aiup/msiaf` (root package doesn't re-export catalog)
+| Issue | Solution |
+|-------|----------|
+| "unknown GPU" errors | Run `go generate ./msiaf/...` to update the catalog |
+| Build fails with "package not found" | Check `package` declarations and import paths |
+| go generate fails | Check `//go:generate` path for correct directory depth |
+| Tests fail after moving files | Ensure generator outputs correct package name, re-run `go generate ./...` |
+| Import errors with catalog | Import as `github.com/hekmon/aiup/msiaf/catalog` (root package doesn't re-export catalog) |

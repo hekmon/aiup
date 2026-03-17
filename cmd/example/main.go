@@ -1,9 +1,10 @@
-// Command scan-example demonstrates how to use the msiaf package to scan MSI Afterburner profiles.
+// Command example demonstrates how to use the msiaf package to scan MSI Afterburner profiles
+// and parse the global configuration file.
 //
 // Usage:
 //
 //	cd aiup
-//	go run cmd/scan-example/main.go
+//	go run cmd/example/main.go
 package main
 
 import (
@@ -35,14 +36,34 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Display global config file info
-	fmt.Println("Global Configuration File:")
+	// Parse and display global config file info
 	if result.GlobalConfigPath != "" {
+		fmt.Println("Global Configuration File:")
 		fmt.Printf("  Path: %s\n", result.GlobalConfigPath)
+
+		config, err := msiaf.ParseGlobalConfig(result.GlobalConfigPath)
+		if err != nil {
+			fmt.Printf("  Error parsing config: %v\n", err)
+		} else {
+			fmt.Println()
+			fmt.Println("  Key Settings:")
+			fmt.Printf("    Language:              %s\n", config.Settings.Language)
+			fmt.Printf("    Fahrenheit:            %v\n", config.Settings.Fahrenheit)
+			fmt.Printf("    HwPollPeriod:          %v\n", config.Settings.HwPollPeriod)
+			fmt.Printf("    StartWithWindows:      %v\n", config.Settings.StartMinimized)
+			fmt.Printf("    UnlockVoltageControl:  %v\n", config.Settings.UnlockVoltageControl)
+			fmt.Printf("    LowLevelInterface:     %v\n", config.Settings.LowLevelInterface)
+			fmt.Printf("    SwAutoFanControl:      %v\n", config.Settings.SwAutoFanControl)
+			fmt.Printf("    CurrentGpu:            %d\n", config.Settings.CurrentGpu)
+			fmt.Printf("    Sync (GPU linking):    %v\n", config.Settings.Sync)
+			fmt.Printf("    LinkThermal:           %v\n", config.Settings.LinkThermal)
+			fmt.Printf("    FanSync:               %v\n", config.Settings.FanSync)
+		}
+		fmt.Println()
 	} else {
-		fmt.Println("  Not found")
+		fmt.Println("Global Configuration File: Not found")
+		fmt.Println()
 	}
-	fmt.Println()
 
 	// Display hardware profiles
 	fmt.Printf("Hardware Profiles (%d found):\n", len(result.HardwareProfiles))
