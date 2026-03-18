@@ -1,5 +1,5 @@
 // Command example demonstrates how to use the msiaf package to scan MSI Afterburner profiles,
-// parse the global configuration file, and load hardware-specific profile settings.
+// parse the global configuration file, load hardware-specific profile settings, and parse VF curves.
 //
 // Usage:
 //
@@ -189,6 +189,87 @@ func main() {
 				}
 				if !hasValues {
 					fmt.Println("      (sparse - only Format field set)")
+				}
+			}
+
+			// Display VF Curve if available
+			if len(startup.VFCurve) > 0 {
+				fmt.Println()
+				fmt.Println("    VF Curve (Voltage-Frequency) - [Startup] section:")
+				fmt.Printf("      Raw data: %d bytes\n", len(startup.VFCurve))
+
+				// Parse the VF curve from hex
+				hexData := fmt.Sprintf("%x", startup.VFCurve)
+				curve, err := msiaf.UnmarshalVFControlCurve(hexData)
+				if err != nil {
+					fmt.Printf("      Error parsing: %v\n", err)
+				} else {
+					fmt.Printf("      Version: %s\n", curve.VersionString())
+					fmt.Printf("      Points: %d (%d active, %d inactive)\n",
+						len(curve.Points), len(curve.GetActivePoints()), len(curve.GetInactivePoints()))
+
+					// Show offset range
+					if len(curve.Points) > 0 {
+						minOffset := curve.GetMinOffset()
+						maxOffset := curve.GetMaxOffset()
+						fmt.Printf("      Offset range: %+.0f ... %+.0f MHz\n", minOffset, maxOffset)
+					}
+
+					// Display sample points in the 800-1000 mV range
+					fmt.Println()
+					fmt.Println("      Sample points (voltage → offset | OC Scanner ref):")
+					// Show all voltage points from 800-1000 mV at 25 mV intervals
+					sampleVoltages := []float32{800, 825, 850, 875, 900, 925, 950, 975, 1000}
+					for _, voltage := range sampleVoltages {
+						point := curve.GetPointByVoltage(voltage)
+						if point != nil {
+							// Display actual voltage of the point found
+							fmt.Printf("        %4.0f mV → %+.0f MHz | OC Scanner ref: %.0f MHz\n",
+								point.VoltageMV, point.OffsetMHz, point.OCScannerRefMHz)
+						}
+					}
+					fmt.Println("      Note: Actual frequency = hardware boost + offset.")
+					fmt.Println("      Hardware boost is GPU-specific (not stored). OC Scanner ref is a visual reference.")
+				}
+			}
+
+			// Display VF Curves from user-defined profile slots (Profile1-5)
+			for slotNum := 1; slotNum <= 5; slotNum++ {
+				slot := hwProfile.GetProfile(slotNum)
+				if slot != nil && !slot.IsEmpty && len(slot.VFCurve) > 0 {
+					fmt.Println()
+					fmt.Printf("    VF Curve - [Profile%d] section:\n", slotNum)
+					fmt.Printf("      Raw data: %d bytes\n", len(slot.VFCurve))
+
+					// Parse the VF curve from hex
+					hexData := fmt.Sprintf("%x", slot.VFCurve)
+					curve, err := msiaf.UnmarshalVFControlCurve(hexData)
+					if err != nil {
+						fmt.Printf("      Error parsing: %v\n", err)
+					} else {
+						fmt.Printf("      Version: %s\n", curve.VersionString())
+						fmt.Printf("      Points: %d (%d active, %d inactive)\n",
+							len(curve.Points), len(curve.GetActivePoints()), len(curve.GetInactivePoints()))
+
+						// Show offset range
+						if len(curve.Points) > 0 {
+							minOffset := curve.GetMinOffset()
+							maxOffset := curve.GetMaxOffset()
+							fmt.Printf("      Offset range: %+.0f ... %+.0f MHz\n", minOffset, maxOffset)
+						}
+
+						// Show sample points in the 800-1000 mV range
+						fmt.Println()
+						fmt.Println("      Sample points (voltage → offset | OC Scanner ref):")
+						sampleVoltages := []float32{800, 825, 850, 875, 900, 925, 950, 975, 1000}
+						for _, voltage := range sampleVoltages {
+							point := curve.GetPointByVoltage(voltage)
+							if point != nil {
+								fmt.Printf("        %4.0f mV → %+.0f MHz | OC Scanner ref: %.0f MHz\n",
+									point.VoltageMV, point.OffsetMHz, point.OCScannerRefMHz)
+							}
+						}
+					}
 				}
 			}
 		}

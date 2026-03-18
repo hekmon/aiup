@@ -295,6 +295,15 @@ The `catalog` subpackage should:
 4. Update tests in `msiaf/scan_test.go`
 5. Verify with `go build ./...` and `go test ./...`
 
+### When Investigating Unknown Binary Formats
+
+1. **Create temporary analysis tools** in `tmp/<experiment_name>/`
+2. **Store large constants** (hex data) in separate `.go` files for easy iteration
+3. **Test multiple hypotheses** systematically with clear labeled output
+4. **Document findings** in AGENT.md before implementing final parser
+5. **Follow the reference pattern** in `fancurve.go` for implementing deserializers
+6. **Clean up** temp directory after implementation is complete
+
 ---
 
 ## 6. Code Quality Guidelines
@@ -457,9 +466,29 @@ fmt.Printf("Power: %d%%\n", startup.GetPowerLimit())
 fmt.Printf("Core Clock: +%d MHz\n", startup.GetCoreClkBoostMHz())
 ```
 
-### VFCurve Handling
+### V-F Curve Binary Format
 
-The voltage-frequency curve (`VFCurve`) is currently stored as a raw `[]byte` (decoded hex blob). Binary format parsing is deferred to a future task, following the same pattern as `SwAutoFanControlCurve` before its deserializer was implemented.
+**Location:** `msiaf/vfcurve.go` (full specification in package-level comments)
+
+The voltage-frequency curve (`VFCurve`) uses a binary format stored as a hex blob in hardware profile `.cfg` files.
+
+**Quick Reference:**
+- **Header:** 12 bytes = `[version:uint32][count:uint32][reserved:float32=0.0]`
+- **Per point:** 12 bytes = `[voltage:float32][oc_ref:float32][offset:float32]`
+- **Inactive marker:** `oc_ref = 225.0` (stock behavior)
+- **Applied frequency:** `HardwareBoost(v) + offset` (hardware boost is driver-private)
+
+**Key Design Principle:** The `.cfg` blob alone is **insufficient** to compute exact GPU frequencies. The `vfcurve.go` implementation **only exposes authoritative data** extracted from the binary blob (voltage, oc_ref, offset). Users needing actual frequencies must use runtime tools (nvidia-smi, NVML, NvAPI).
+
+**For complete binary format specification**, see the package-level comments at the top of `msiaf/vfcurve.go`.
+
+
+
+#### Testing
+
+- Unit tests: `msiaf/vfcurve_test.go`
+- Integration tests use actual profile files from `LocalProfiles/`
+- Verify parsed values match MSI Afterburner UI (e.g., 1000 mV → +43 MHz offset)
 
 ### Usage Example
 
