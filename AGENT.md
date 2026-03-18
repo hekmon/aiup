@@ -399,3 +399,97 @@ func main() {
 | go generate fails | Check `//go:generate` path for correct directory depth |
 | Tests fail after moving files | Ensure generator outputs correct package name, re-run `go generate ./...` |
 | Import errors with catalog | Import as `github.com/hekmon/aiup/msiaf/catalog` (root package doesn't re-export catalog) |
+
+---
+
+## 9. Hardware Profile Parsing
+
+**Location:** `msiaf/profile.go`
+
+Hardware profile files (e.g., `VEN_10DE&DEV_2B85&SUBSYS_89EC1043&REV_A1&BUS_1&DEV_0&FN_0.cfg`) contain GPU-specific overclocking and fan settings.
+
+### File Structure
+
+Hardware profiles use INI-style format with the following sections:
+
+| Section | Purpose |
+|---------|---------|
+| `[Startup]` | Currently active settings (applied on load) |
+| `[Profile1]` - `[Profile5]` | User-defined overclocking slots |
+| `[Defaults]` | Factory default baseline values |
+| `[PreSuspendedMode]` | State before system suspension (for restoration) |
+| `[Settings]` | Miscellaneous profile metadata |
+
+### Key Fields
+
+| Field | Type | Unit | Description |
+|-------|------|------|-------------|
+| `Format` | *int | - | Profile format version (e.g., 2) |
+| `PowerLimit` | *int | % | Power limit percentage |
+| `CoreClkBoost` | *int | kHz | Core clock offset |
+| `MemClkBoost` | *int | kHz | Memory clock offset |
+| `VFCurve` | []byte | - | Voltage-frequency curve (binary format) |
+| `FanMode` | *int | - | 0=auto, 1=manual |
+| `FanSpeed` | *int | % | Manual fan speed |
+
+### Pointer Field Design
+
+**All numeric fields use pointers** to distinguish between:
+- **`nil`** = field not present in file
+- **`&value`** = field explicitly set (even if 0)
+
+This is more idiomatic Go and enables:
+- Detecting sparse sections (e.g., PreSuspendedMode)
+- Clean serialization (only write non-nil fields)
+- Semantic clarity without auxiliary tracking
+
+```go
+// Good: Use helper methods for ergonomic access
+startup := profile.GetCurrentSettings()
+if startup.PowerLimit != nil {
+    fmt.Printf("Power: %d%%\n", *startup.PowerLimit)
+}
+
+// Better: Use getters (handles nil automatically)
+fmt.Printf("Power: %d%%\n", startup.GetPowerLimit())
+
+// Best: Use unit-appropriate helpers
+fmt.Printf("Core Clock: +%d MHz\n", startup.GetCoreClkBoostMHz())
+```
+
+### VFCurve Handling
+
+The voltage-frequency curve (`VFCurve`) is currently stored as a raw `[]byte` (decoded hex blob). Binary format parsing is deferred to a future task, following the same pattern as `SwAutoFanControlCurve` before its deserializer was implemented.
+
+### Usage Example
+
+```go
+// Scan for profiles
+result, err := msiaf.Scan("LocalProfiles")
+
+// Load hardware profile for a specific GPU
+hwProfile, err := result.HardwareProfiles[0].LoadProfile()
+
+// Access settings
+startup := hwProfile.GetCurrentSettings()
+fmt.Printf("Power Limit: %d%%\n", startup.GetPowerLimit())
+fmt.Printf("Core Clock: +%d MHz\n", startup.GetCoreClkBoostMHz())
+fmt.Printf("Memory: +%d MHz\n", startup.GetMemClkBoostMHz())
+
+// Check if profile slot is populated
+slot := hwProfile.GetProfile(1)
+if slot != nil && !slot.IsEmpty {
+    fmt.Println("Profile1 is configured")
+}
+
+// Check for sparse sections
+if hwProfile.PreSuspendedMode.HasSettings() {
+    // Process pre-suspend state
+}
+```
+
+### Testing
+
+- Unit tests: `msiaf/profile_test.go`
+- Integration tests use actual profile files from `LocalProfiles/`
+- Tests verify pointer field semantics (nil vs &0)

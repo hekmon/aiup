@@ -1,5 +1,5 @@
-// Command example demonstrates how to use the msiaf package to scan MSI Afterburner profiles
-// and parse the global configuration file.
+// Command example demonstrates how to use the msiaf package to scan MSI Afterburner profiles,
+// parse the global configuration file, and load hardware-specific profile settings.
 //
 // Usage:
 //
@@ -80,22 +80,118 @@ func main() {
 	fmt.Printf("Hardware Profiles (%d found):\n", len(result.HardwareProfiles))
 	fmt.Println()
 
-	for i, profile := range result.HardwareProfiles {
-		fmt.Printf("[%d] %s\n", i+1, filepath.Base(profile.FilePath))
+	for i, profileInfo := range result.HardwareProfiles {
+		fmt.Printf("[%d] %s\n", i+1, filepath.Base(profileInfo.FilePath))
 
 		// Display human-readable GPU summary using value-added method
-		fmt.Printf("    GPU: %s\n", profile.GetGPUDescription())
+		fmt.Printf("    GPU: %s\n", profileInfo.GetGPUDescription())
 
 		// Display resolved device and manufacturer info using profile methods
-		gpuInfo := profile.GetGPUInfo()
-		manufacturer := profile.GetManufacturer()
-		fmt.Printf("    Vendor ID:  %s (%s)\n", profile.VendorID, gpuInfo.VendorName)
-		fmt.Printf("    Device ID:  %s (%s)\n", profile.DeviceID, gpuInfo.GPUName)
-		fmt.Printf("    Subsystem:  %s (%s)\n", profile.SubsystemID, manufacturer)
+		gpuInfo := profileInfo.GetGPUInfo()
+		manufacturer := profileInfo.GetManufacturer()
+		fmt.Printf("    Vendor ID:  %s (%s)\n", profileInfo.VendorID, gpuInfo.VendorName)
+		fmt.Printf("    Device ID:  %s (%s)\n", profileInfo.DeviceID, gpuInfo.GPUName)
+		fmt.Printf("    Subsystem:  %s (%s)\n", profileInfo.SubsystemID, manufacturer)
 
-		fmt.Printf("    Revision:   %s\n", profile.Revision)
+		fmt.Printf("    Revision:   %s\n", profileInfo.Revision)
 		fmt.Printf("    Location:   Bus %d, Device %d, Function %d\n",
-			profile.BusNumber, profile.DeviceNumber, profile.FunctionNumber)
+			profileInfo.BusNumber, profileInfo.DeviceNumber, profileInfo.FunctionNumber)
+
+		// Load and display hardware profile settings
+		hwProfile, err := profileInfo.LoadProfile()
+		if err != nil {
+			fmt.Printf("    Error loading profile: %v\n", err)
+		} else {
+			fmt.Println()
+			fmt.Println("    Hardware Profile Settings:")
+
+			// Display Startup section (currently active settings)
+			startup := hwProfile.GetCurrentSettings()
+			fmt.Println("    Startup (Active Settings):")
+			if startup.Format != nil {
+				fmt.Printf("      Format:        %d\n", *startup.Format)
+			}
+			if startup.PowerLimit != nil {
+				fmt.Printf("      PowerLimit:    %d%%\n", *startup.PowerLimit)
+			}
+			if startup.CoreClkBoost != nil {
+				fmt.Printf("      CoreClkBoost:  +%d MHz\n", startup.GetCoreClkBoostMHz())
+			}
+			if startup.MemClkBoost != nil {
+				fmt.Printf("      MemClkBoost:   +%d MHz\n", startup.GetMemClkBoostMHz())
+			}
+			if startup.FanMode != nil {
+				mode := "Auto"
+				if *startup.FanMode == 1 {
+					mode = "Manual"
+				}
+				fmt.Printf("      FanMode:       %s\n", mode)
+			}
+			if startup.FanSpeed != nil {
+				fmt.Printf("      FanSpeed:      %d%%\n", *startup.FanSpeed)
+			}
+			if startup.VFCurve != nil {
+				fmt.Printf("      VFCurve:       %d bytes (binary format)\n", len(startup.VFCurve))
+			}
+
+			// Display Defaults section
+			defaults := hwProfile.GetDefaults()
+			if defaults.HasSettings() {
+				fmt.Println()
+				fmt.Println("    Defaults (Factory Settings):")
+				if defaults.PowerLimit != nil {
+					fmt.Printf("      PowerLimit:    %d%%\n", *defaults.PowerLimit)
+				}
+				if defaults.CoreClkBoost != nil {
+					fmt.Printf("      CoreClkBoost:  +%d MHz\n", defaults.GetCoreClkBoostMHz())
+				}
+				if defaults.MemClkBoost != nil {
+					fmt.Printf("      MemClkBoost:   +%d MHz\n", defaults.GetMemClkBoostMHz())
+				}
+			}
+
+			// Display user-defined profile slots (Profile1-5)
+			fmt.Println()
+			fmt.Println("    User Profile Slots:")
+			for slotNum := 1; slotNum <= 5; slotNum++ {
+				slot := hwProfile.GetProfile(slotNum)
+				if slot != nil && !slot.IsEmpty {
+					fmt.Printf("      Profile%d:\n", slotNum)
+					if slot.PowerLimit != nil {
+						fmt.Printf("        PowerLimit:  %d%%\n", *slot.PowerLimit)
+					}
+					if slot.CoreClkBoost != nil {
+						fmt.Printf("        CoreClk:     +%d MHz\n", slot.GetCoreClkBoostMHz())
+					}
+					if slot.MemClkBoost != nil {
+						fmt.Printf("        MemClk:      +%d MHz\n", slot.GetMemClkBoostMHz())
+					}
+					if slot.FanSpeed != nil {
+						fmt.Printf("        FanSpeed:    %d%%\n", *slot.FanSpeed)
+					}
+				} else if slot != nil && slot.IsEmpty {
+					fmt.Printf("      Profile%d: (empty)\n", slotNum)
+				}
+			}
+
+			// Display PreSuspendedMode if it has settings
+			if hwProfile.PreSuspendedMode.HasSettings() {
+				fmt.Println()
+				fmt.Println("    PreSuspendedMode:")
+				if hwProfile.PreSuspendedMode.Format != nil {
+					fmt.Printf("      Format: %d\n", *hwProfile.PreSuspendedMode.Format)
+				}
+				// Show which fields are populated (non-nil)
+				hasValues := false
+				if hwProfile.PreSuspendedMode.PowerLimit != nil {
+					fmt.Printf("      PowerLimit: %d%%\n", *hwProfile.PreSuspendedMode.PowerLimit)
+					hasValues = true
+				}
+				if !hasValues {
+					fmt.Println("      (sparse - only Format field set)")
+				}
+			}
+		}
 
 		fmt.Println()
 	}
