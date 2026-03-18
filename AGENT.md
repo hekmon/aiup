@@ -1,6 +1,53 @@
 # AI Agent Guidelines
 
-This document provides guidelines for AI agents working on this project. Read this at the start of each session.
+**Purpose:** Read this at the start of each session. This document tells you how to work on this project.
+
+**Last Updated:** Current session - Full restructure for AI agent optimization
+
+---
+
+## ⚡ QUICK REFERENCE
+
+### Common Tasks
+
+| Task | Command | Location |
+|------|---------|----------|
+| Regenerate GPU catalog | `go generate ./msiaf/...` | Project root |
+| Run all pre-commit checks | `go generate ./... && go build ./... && go test ./... && go vet ./...` | Project root |
+| Create temp experiment | `mkdir -p tmp/<name>` | Project root |
+| Clean up experiments | `rm -rf tmp/` | After implementation |
+| Lookup device ID | Check `msiaf/catalog/catalog_generated.go` | Or run `go generate` |
+
+### Decision Tree: Where Does My Code Go?
+
+```
+What are you building?
+│
+├── Finding/listing files?          → msiaf/scan.go
+├── Parsing MSIAfterburner.cfg?     → msiaf/globalconfig.go
+├── Parsing hardware profile .cfg?  → msiaf/profile.go
+├── Fan curve binary format?        → msiaf/fancurve.go
+├── V-F curve binary format?        → msiaf/vfcurve.go
+├── New binary format?              → msiaf/<format>.go (new file)
+├── GPU manufacturer lookups?       → msiaf/catalog/ (hand-written)
+├── GPU data table?                 → msiaf/catalog_generated.go (auto-generated)
+├── Combining multiple sources?     → Method on existing type in root package
+├── Thin wrapper around subpackage? → DON'T DO IT
+└── Utility/helper function?        → Method on the type users already have
+```
+
+### Heuristics: When in Doubt...
+
+| Situation | Default Action |
+|-----------|----------------|
+| Unknown binary format | Create temp tool in `tmp/`, document findings, then implement |
+| Unsure about struct fields | Parse everything during parsing, no lazy methods |
+| Adding a helper function | Make it a method on the type users already manipulate |
+| Found bug in generated code | Fix the generator (`cmd/gencatalog/`), not the output |
+| Tests fail with "unknown GPU" | Run `go generate ./msiaf/...` first |
+| Unclear file organization | Follow "new scopes deserve new files" principle |
+| Need to move files | Update `//go:generate` paths, regenerate, verify |
+| Adding new config field | Add to struct, parse during initial parse, use appropriate Go type |
 
 ---
 
@@ -17,7 +64,7 @@ Before writing any code:
 
 ### 2. Pre-Commit Checklist
 
-**Before considering a task complete and presenting results to the user, always run:**
+**Before considering a task complete, always run:**
 
 ```bash
 go generate ./...
@@ -45,60 +92,66 @@ At the end of successful sessions (everything builds, tests pass, stable conclus
 
 ---
 
-## 1. Project Overview
+## 📁 PROJECT MAP
 
-### Package Structure
+### Directory Structure
 
 ```
-msiaf/
-├── scan.go                  # Directory/file discovery (scanning)
-├── scan_test.go
-├── globalconfig.go          # Global config parsing (MSIAfterburner.cfg)
-├── globalconfig_test.go
-└── catalog/                 # GPU catalog subpackage
-    ├── catalog.go           # Lookup functions (hand-written)
-    ├── catalog_generated.go # Auto-generated data (DO NOT EDIT)
-    └── catalog_test.go      # Tests
+/home/doudou/perso/github.com/hekmon/aiup/
+│
+├── AGENT.md                    # This file - AI agent guidelines
+├── README.md                   # Project documentation
+├── go.mod, go.sum              # Go module definition
+│
+├── msiaf/                      # Main package - MSI Afterburner parsing
+│   ├── scan.go                 # HardwareProfileInfo, Scan(), file discovery
+│   ├── scan_test.go
+│   ├── globalconfig.go         # Settings struct, ParseGlobalConfig()
+│   ├── globalconfig_test.go
+│   ├── profile.go              # HardwareProfile struct, section parsing
+│   ├── profile_test.go
+│   ├── fancurve.go             # Fan curve binary deserialization
+│   ├── fancurve_test.go
+│   ├── vfcurve.go              # V-F curve binary deserialization
+│   ├── vfcurve_test.go
+│   └── catalog/                # GPU lookup subpackage
+│       ├── catalog.go          # LookupGPU(), LookupManufacturer() (hand-written)
+│       ├── catalog_generated.go # GPU data table (DO NOT EDIT - auto-generated)
+│       └── catalog_test.go
+│
+├── cmd/
+│   └── gencatalog/             # GPU catalog generator tool
+│       └── main.go             # Fetches pci-ids, generates catalog_generated.go
+│
+├── LocalProfiles/              # Test data (gitignored)
+│   └── *.cfg                   # Hardware profile files
+│
+└── tmp/                        # Temporary experiment tools (clean up after use)
+    └── <experiment_name>/      # Remove after implementation complete
 ```
 
-- **Root package** (`msiaf/`): Scanning, config parsing, value-added methods on types
-- **Catalog subpackage** (`msiaf/catalog/`): Pure GPU lookup functions (importable by anyone)
+### Package Responsibilities
 
-### File Organization Principle
-
-**"Separate concerns by scope - new scopes deserve new files."**
-
-| Scope | File | Purpose |
-|-------|------|---------|
-| Directory/File discovery | `scan.go` | Finding and listing files, parsing filenames |
-| File content parsing | `globalconfig.go` | Parsing MSIAfterburner.cfg contents |
-| File content parsing | `profile.go` | Parsing hardware profile .cfg contents (future) |
-| GPU data lookups | `catalog/` | Auto-generated GPU database lookups |
-
-```go
-// ✅ Good: scan.go handles discovery only
-result, err := msiaf.Scan(dir) // Finds files, parses filenames
-
-// ✅ Good: globalconfig.go handles config file parsing
-config, err := msiaf.ParseGlobalConfig(path) // Parses file contents
-
-// ❌ Bad: Mixing concerns
-// Don't put config parsing logic in scan.go
-// Don't put file discovery logic in globalconfig.go
-```
+| Package | Purpose | Import Path |
+|---------|---------|-------------|
+| `msiaf` (root) | Scanning, config parsing, value-added methods on types | `github.com/hekmon/aiup/msiaf` |
+| `msiaf/catalog` | Pure GPU/manufacturer lookup functions | `github.com/hekmon/aiup/msiaf/catalog` |
+| `cmd/gencatalog` | Generator tool (not importable) | N/A |
 
 ---
 
-## 2. API Design Philosophy
+## 1. API DESIGN PHILOSOPHY
 
 ### Core Principles
 
 **"Don't hide anything, but pack convenience helpers where users will naturally find them."**
 
-1. **Transparency**: All raw data (VendorID, DeviceID, SubsystemID, etc.) is directly accessible on structs
-2. **Discoverability**: Helper methods are on the objects users already manipulate (`HardwareProfileInfo`)
-3. **Flexibility**: Users can import `catalog` directly if they want raw lookups without scanning
-4. **No unnecessary wrappers**: Avoid thin wrapper functions that just re-export from subpackages
+| Principle | Meaning |
+|-----------|---------|
+| **Transparency** | All raw data (VendorID, DeviceID, SubsystemID, etc.) directly accessible on structs |
+| **Discoverability** | Helper methods on objects users already manipulate (`HardwareProfileInfo`) |
+| **Flexibility** | Users can import `catalog` directly for raw lookups without scanning |
+| **No unnecessary wrappers** | Avoid thin wrapper functions that just re-export from subpackages |
 
 ### Strong Typing Philosophy
 
@@ -127,9 +180,7 @@ fmt.Println(config.Settings.HwPollPeriod) // "1s"
 
 // ❌ Bad: Requires helper method to convert
 config.Settings.HwPollPeriodMs // int (1000) - user must convert manually
-```
 
-```go
 // ✅ Good: All fields are named, IDE discovers them
 type Settings struct {
     Language              string
@@ -164,21 +215,20 @@ gpuInfo := catalog.LookupGPU("10DE", "2B85")
 
 ---
 
-## 3. GPU Catalog System
+## 2. GPU CATALOG SYSTEM
 
 ### Overview
 
-The GPU catalog (`msiaf/catalog/catalog_generated.go`) is **auto-generated** and should **NEVER** be edited manually. It is generated from the [pci-ids database](https://pci-ids.ucw.cz/v2.2/pci.ids).
+The GPU catalog (`msiaf/catalog/catalog_generated.go`) is **auto-generated** and should **NEVER** be edited manually. Generated from the [pci-ids database](https://pci-ids.ucw.cz/v2.2/pci.ids).
 
 ### Key Files
 
-| File | Purpose |
-|------|---------|
-| `cmd/gencatalog/main.go` | Generator tool |
-| `msiaf/scan.go` | Profile scanning logic + `HardwareProfileInfo` methods |
-| `msiaf/catalog/catalog.go` | Lookup functions (hand-written) |
-| `msiaf/catalog/catalog_generated.go` | Auto-generated data (DO NOT EDIT) |
-| `msiaf/catalog/catalog_test.go` | Tests using actual pci-ids device IDs |
+| File | Purpose | Edit? |
+|------|---------|-------|
+| `cmd/gencatalog/main.go` | Generator tool | Yes |
+| `msiaf/catalog/catalog.go` | Lookup functions (hand-written) | Yes |
+| `msiaf/catalog/catalog_generated.go` | Auto-generated data | **NO** |
+| `msiaf/catalog/catalog_test.go` | Tests | Yes |
 
 ### Regenerating the Catalog
 
@@ -209,14 +259,6 @@ This will:
 - Run `go generate` before running tests
 - Test expectations should match pci-ids data, not external databases
 
-```go
-// Good: Uses actual pci-ids device ID
-{"2B85", "GeForce RTX 5090"}
-
-// Bad: May not match pci-ids
-{"2786", "GeForce RTX 4090"} // Wrong ID in pci-ids
-```
-
 ### Common Pitfalls
 
 | Issue | Solution |
@@ -228,43 +270,225 @@ This will:
 
 ---
 
-## 4. Fan Curve Serialization
+## 3. BINARY FORMAT PARSERS
 
-The software auto fan control curve (`SwAutoFanControlCurve`) uses a 256-byte binary format stored in the MSI Afterburner configuration file.
+### Overview
 
-**Location:** `msiaf/fancurve.go`
+Binary formats in MSI Afterburner config files use hex-encoded blobs. Each format has its own parser with strict validation.
 
-**Key characteristics:**
-- **Strict validation with detailed error reporting** - Uses `FanCurveError` type to provide field-level error information
-- **Version validation** - Must match `FanCurveBinaryFormatVersion` (0x00010000 = version 1.0)
-- **Temperature range validation** - -50 to 150°C (sanity checks, not hardware limits)
-- **Fan speed range validation** - 0-100% (physical limits)
-- **Point ordering validation** - Points MUST be sorted by temperature in ascending order for correct interpolation
-- **All parsing functions return errors** - No silent failures! This is critical for hardware safety - never apply corrupted fan curves
+| Format | File | Purpose |
+|--------|------|---------|
+| Fan Curve | `msiaf/fancurve.go` | Auto fan control (256-byte format) |
+| V-F Curve | `msiaf/vfcurve.go` | Voltage-frequency curve (variable length) |
 
-**Binary format documentation:** The complete binary format specification is documented inline in `fancurve.go` (see comments at the top of the file). Do not duplicate this documentation elsewhere - keep it with the code.
+### General Pattern for New Binary Parsers
 
-**Testing:** Unit tests are in `msiaf/fancurve_test.go`. Integration tests (config file parsing) are in `msiaf/globalconfig_test.go`.
+When implementing a new binary format parser:
+
+1. **Create new file** → `msiaf/<format>.go`
+2. **Document format inline** → Package-level comments with complete binary specification
+3. **Define error types** → Use structured errors (e.g., `FormatError`) with field-level details
+4. **Validate strictly** → Version checks, range checks, ordering checks
+5. **Return errors** → No silent failures - critical for hardware safety
+6. **Write unit tests** → `msiaf/<format>_test.go` with known-good and known-bad inputs
+7. **Add integration tests** → Parse actual config/profile files
+
+### Validation Checklist
+
+```
+├── Version validation?           → Must match expected format version
+├── Length validation?            → Check expected byte count
+├── Range validation?             → Sanity check numeric ranges
+├── Ordering validation?          → Points sorted correctly (if applicable)
+├── Reserved field validation?    → Check reserved fields are as expected
+└── Error reporting?              → Field-level error information
+```
+
+### Temp Experiments
+
+When investigating unknown formats:
+
+1. **Create temp tool** → `tmp/<experiment_name>/main.go`
+2. **Store large constants** → Separate `.go` files for hex data
+3. **Test hypotheses** → Systematically with clear labeled output
+4. **Document findings** → In AGENT.md before implementing final parser
+5. **Follow reference pattern** → Use `fancurve.go` or `vfcurve.go` as template
+6. **Clean up** → `rm -rf tmp/<experiment_name>/` after implementation
 
 ---
 
-## 5. Workflow Guidelines
+## 4. FAN CURVE SERIALIZATION
+
+**Location:** `msiaf/fancurve.go`
+
+The software auto fan control curve (`SwAutoFanControlCurve`) uses a 256-byte binary format stored in the MSI Afterburner configuration file.
+
+### Binary Format Documentation
+
+**See package-level comments in `msiaf/fancurve.go`** for complete specification.
+
+### Key Characteristics
+
+| Characteristic | Detail |
+|----------------|--------|
+| **Version** | Must match `FanCurveBinaryFormatVersion` (0x00010000 = v1.0) |
+| **Size** | Fixed 256 bytes |
+| **Temperature range** | -50 to 150°C (sanity checks, not hardware limits) |
+| **Fan speed range** | 0-100% (physical limits) |
+| **Point ordering** | MUST be sorted by temperature ascending for correct interpolation |
+
+### Design Principle
+
+**Strict validation with detailed error reporting** - Uses `FanCurveError` type to provide field-level error information. All parsing functions return errors - no silent failures! This is critical for hardware safety.
+
+### Testing
+
+| Test Type | Location |
+|-----------|----------|
+| Unit tests | `msiaf/fancurve_test.go` |
+| Integration tests | `msiaf/globalconfig_test.go` |
+
+---
+
+## 5. V-F CURVE BINARY FORMAT
+
+**Location:** `msiaf/vfcurve.go` (full specification in package-level comments)
+
+The voltage-frequency curve (`VFCurve`) uses a binary format stored as a hex blob in hardware profile `.cfg` files.
+
+### Quick Reference
+
+| Component | Size | Format |
+|-----------|------|--------|
+| **Header** | 12 bytes | `[version:uint32][count:uint32][reserved:float32=0.0]` |
+| **Per point** | 12 bytes | `[voltage:float32][oc_ref:float32][offset:float32]` |
+| **Inactive marker** | - | `oc_ref = 225.0` (stock behavior) |
+| **Applied frequency** | - | `HardwareBoost(v) + offset` (hardware boost is driver-private) |
+
+### Key Design Principle
+
+The `.cfg` blob alone is **insufficient** to compute exact GPU frequencies. The `vfcurve.go` implementation **only exposes authoritative data** extracted from the binary blob (voltage, oc_ref, offset). Users needing actual frequencies must use runtime tools (nvidia-smi, NVML, NvAPI).
+
+### Testing
+
+| Test Type | Location |
+|-----------|----------|
+| Unit tests | `msiaf/vfcurve_test.go` |
+| Integration tests | Use actual profile files from `LocalProfiles/` |
+| Verification | Parsed values match MSI Afterburner UI (e.g., 1000 mV → +43 MHz offset) |
+
+---
+
+## 6. HARDWARE PROFILE PARSING
+
+**Location:** `msiaf/profile.go`
+
+Hardware profile files (e.g., `VEN_10DE&DEV_2B85&SUBSYS_89EC1043&REV_A1&BUS_1&DEV_0&FN_0.cfg`) contain GPU-specific overclocking and fan settings.
+
+### File Structure
+
+Hardware profiles use INI-style format with the following sections:
+
+| Section | Purpose |
+|---------|---------|
+| `[Startup]` | Currently active settings (applied on load) |
+| `[Profile1]` - `[Profile5]` | User-defined overclocking slots |
+| `[Defaults]` | Factory default baseline values |
+| `[PreSuspendedMode]` | State before system suspension (for restoration) |
+| `[Settings]` | Miscellaneous profile metadata |
+
+### Key Fields
+
+| Field | Type | Unit | Description |
+|-------|------|------|-------------|
+| `Format` | *int | - | Profile format version (e.g., 2) |
+| `PowerLimit` | *int | % | Power limit percentage |
+| `CoreClkBoost` | *int | kHz | Core clock offset |
+| `MemClkBoost` | *int | kHz | Memory clock offset |
+| `VFCurve` | []byte | - | Voltage-frequency curve (binary format) |
+| `FanMode` | *int | - | 0=auto, 1=manual |
+| `FanSpeed` | *int | % | Manual fan speed |
+
+### Pointer Field Design
+
+**All numeric fields use pointers** to distinguish between:
+
+| Value | Meaning |
+|-------|---------|
+| `nil` | Field not present in file |
+| `&value` | Field explicitly set (even if 0) |
+
+**Benefits:**
+- Detecting sparse sections (e.g., PreSuspendedMode)
+- Clean serialization (only write non-nil fields)
+- Semantic clarity without auxiliary tracking
+
+```go
+// Good: Use helper methods for ergonomic access
+startup := profile.GetCurrentSettings()
+if startup.PowerLimit != nil {
+    fmt.Printf("Power: %d%%\n", *startup.PowerLimit)
+}
+
+// Better: Use getters (handles nil automatically)
+fmt.Printf("Power: %d%%\n", startup.GetPowerLimit())
+
+// Best: Use unit-appropriate helpers
+fmt.Printf("Core Clock: +%d MHz\n", startup.GetCoreClkBoostMHz())
+```
+
+### Usage Example
+
+```go
+// Scan for profiles
+result, err := msiaf.Scan("LocalProfiles")
+
+// Load hardware profile for a specific GPU
+hwProfile, err := result.HardwareProfiles[0].LoadProfile()
+
+// Access settings
+startup := hwProfile.GetCurrentSettings()
+fmt.Printf("Power Limit: %d%%\n", startup.GetPowerLimit())
+fmt.Printf("Core Clock: +%d MHz\n", startup.GetCoreClkBoostMHz())
+fmt.Printf("Memory: +%d MHz\n", startup.GetMemClkBoostMHz())
+
+// Check if profile slot is populated
+slot := hwProfile.GetProfile(1)
+if slot != nil && !slot.IsEmpty {
+    fmt.Println("Profile1 is configured")
+}
+
+// Check for sparse sections
+if hwProfile.PreSuspendedMode.HasSettings() {
+    // Process pre-suspend state
+}
+```
+
+### Testing
+
+- Unit tests: `msiaf/profile_test.go`
+- Integration tests use actual profile files from `LocalProfiles/`
+- Tests verify pointer field semantics (nil vs &0)
+
+---
+
+## 7. WORKFLOW GUIDELINES
 
 ### When Working on GPU-Related Features
 
-1. **Check if catalog needs updating**: Run `go generate ./msiaf/...`
-2. **Verify device IDs**: Look up actual device IDs in `catalog_generated.go`
-3. **Test thoroughly**: Run `go test ./msiaf/...` after any changes
-4. **Commit generated file**: Unlike typical generated files, `catalog_generated.go` should be committed
+1. **Check if catalog needs updating** → Run `go generate ./msiaf/...`
+2. **Verify device IDs** → Look up in `catalog_generated.go`
+3. **Test thoroughly** → Run `go test ./msiaf/...` after changes
+4. **Commit generated file** → `catalog_generated.go` should be committed
 
 ### When Moving or Restructuring Files
 
 1. Update `package` declarations in moved files
 2. Update `//go:generate` paths to account for new directory depth
 3. Update generator (`cmd/gencatalog/main.go`) if it hardcodes package names
-4. Regenerate: `go generate ./...`
-5. Verify build: `go build ./...`
-6. Verify tests: `go test ./...`
+4. Regenerate → `go generate ./...`
+5. Verify build → `go build ./...`
+6. Verify tests → `go test ./...`
 
 ### When to Add Root Package Functions
 
@@ -284,29 +508,20 @@ The `catalog` subpackage should:
 
 **Extending the catalog system:**
 1. Modify `cmd/gencatalog/main.go` to add new logic
-2. Re-run generator: `go generate ./msiaf/...`
+2. Re-run generator → `go generate ./msiaf/...`
 3. Update tests in `msiaf/catalog/catalog_test.go`
-4. Verify with `go build ./...` and `go test ./...`
+4. Verify → `go build ./...` and `go test ./...`
 
 **Extending the scanning functionality:**
 1. Add functions/methods to `msiaf/scan.go`
 2. Use catalog subpackage for GPU lookups (don't duplicate logic)
 3. Add methods to `HardwareProfileInfo` for value-added helpers
 4. Update tests in `msiaf/scan_test.go`
-5. Verify with `go build ./...` and `go test ./...`
-
-### When Investigating Unknown Binary Formats
-
-1. **Create temporary analysis tools** in `tmp/<experiment_name>/`
-2. **Store large constants** (hex data) in separate `.go` files for easy iteration
-3. **Test multiple hypotheses** systematically with clear labeled output
-4. **Document findings** in AGENT.md before implementing final parser
-5. **Follow the reference pattern** in `fancurve.go` for implementing deserializers
-6. **Clean up** temp directory after implementation is complete
+5. Verify → `go build ./...` and `go test ./...`
 
 ---
 
-## 6. Code Quality Guidelines
+## 8. CODE QUALITY GUIDELINES
 
 ### String Building
 
@@ -328,8 +543,12 @@ When moving files with `//go:generate` directives, **update the path** to accoun
 //go:generate go run ../../cmd/gencatalog/main.go
 ```
 
-- From `msiaf/catalog/catalog.go`: Use `../../cmd/gencatalog/main.go` (up 2 levels)
-- The generator writes to the **current directory**, so run it from the correct location
+| Location | Path | Levels Up |
+|----------|------|-----------|
+| From `msiaf/catalog/catalog.go` | `../../cmd/gencatalog/main.go` | 2 levels |
+| From `msiaf/scan.go` | `../cmd/gencatalog/main.go` | 1 level |
+
+**Note:** The generator writes to the **current directory**, so run it from the correct location.
 
 ### Package Consistency
 
@@ -341,7 +560,7 @@ When moving files to subpackages:
 
 ---
 
-## 7. API Usage Examples
+## 9. API USAGE EXAMPLES
 
 ### Basic Scanning
 
@@ -399,126 +618,63 @@ func main() {
 
 ---
 
-## 8. Troubleshooting
+## 🐛 AGENT PITFALLS
+
+**Common mistakes AI agents make on this project:**
+
+| Mistake | Why It Happens | Fix |
+|---------|----------------|-----|
+| Editing `catalog_generated.go` | Looks like normal Go code | **NEVER** - regenerate via `go generate ./msiaf/...` |
+| Guessing device IDs | Using IDs from external databases | Look up in `catalog_generated.go` or regenerate |
+| Wrong `//go:generate` path | Forgetting to update path depth | Count levels: `../../cmd/...` from subpackage |
+| Creating wrapper functions | Habit to centralize access | Add method to existing type instead |
+| Skipping pre-commit checks | Wanting to save time | Run ALL four: generate, build, test, vet |
+| Not running diagnostics | Forgetting gopls suggestions | Use `diagnostics` tool before finalizing |
+| Mixing concerns in files | Unclear file boundaries | Follow "new scopes deserve new files" |
+| Lazy struct fields | Using `Raw map[string]string` | Parse everything during parsing |
+| Silent failures in parsers | Not wanting verbose errors | Return errors - hardware safety depends on it |
+| Not cleaning up `tmp/` | Forgetting experiments | Remove temp tools after implementation |
+
+---
+
+## 🔧 TROUBLESHOOTING
 
 | Issue | Solution |
 |-------|----------|
 | "unknown GPU" errors | Run `go generate ./msiaf/...` to update the catalog |
 | Build fails with "package not found" | Check `package` declarations and import paths |
-| go generate fails | Check `//go:generate` path for correct directory depth |
+| `go generate` fails | Check `//go:generate` path for correct directory depth |
 | Tests fail after moving files | Ensure generator outputs correct package name, re-run `go generate ./...` |
 | Import errors with catalog | Import as `github.com/hekmon/aiup/msiaf/catalog` (root package doesn't re-export catalog) |
+| Diagnostics show `strings.Cut` suggestion | Use `strings.Cut()` instead of `strings.SplitN()` for 2-part splits |
+| Deprecated API warnings | Check Go version and update to modern equivalents |
+| Fan curve parsing fails | Verify version byte matches `FanCurveBinaryFormatVersion` (0x00010000) |
+| V-F curve offset seems wrong | Remember: offset is added to hardware boost (driver-private), not absolute frequency |
 
 ---
 
-## 9. Hardware Profile Parsing
+## 📋 SESSION CHECKLIST
 
-**Location:** `msiaf/profile.go`
+**Start of Session:**
+- [ ] Read this AGENT.md file
+- [ ] Understand the task requirements
+- [ ] Present plan to user before implementing
 
-Hardware profile files (e.g., `VEN_10DE&DEV_2B85&SUBSYS_89EC1043&REV_A1&BUS_1&DEV_0&FN_0.cfg`) contain GPU-specific overclocking and fan settings.
+**During Development:**
+- [ ] Follow file organization principle (new scopes = new files)
+- [ ] Use strong typing (parse during parsing)
+- [ ] Add methods to existing types, not wrappers
+- [ ] Write tests alongside implementation
 
-### File Structure
+**Before Presenting Results:**
+- [ ] Run `go generate ./...`
+- [ ] Run `go build ./...`
+- [ ] Run `go test ./...`
+- [ ] Run `go vet ./...`
+- [ ] Check diagnostics tool
+- [ ] Address all linting suggestions
 
-Hardware profiles use INI-style format with the following sections:
-
-| Section | Purpose |
-|---------|---------|
-| `[Startup]` | Currently active settings (applied on load) |
-| `[Profile1]` - `[Profile5]` | User-defined overclocking slots |
-| `[Defaults]` | Factory default baseline values |
-| `[PreSuspendedMode]` | State before system suspension (for restoration) |
-| `[Settings]` | Miscellaneous profile metadata |
-
-### Key Fields
-
-| Field | Type | Unit | Description |
-|-------|------|------|-------------|
-| `Format` | *int | - | Profile format version (e.g., 2) |
-| `PowerLimit` | *int | % | Power limit percentage |
-| `CoreClkBoost` | *int | kHz | Core clock offset |
-| `MemClkBoost` | *int | kHz | Memory clock offset |
-| `VFCurve` | []byte | - | Voltage-frequency curve (binary format) |
-| `FanMode` | *int | - | 0=auto, 1=manual |
-| `FanSpeed` | *int | % | Manual fan speed |
-
-### Pointer Field Design
-
-**All numeric fields use pointers** to distinguish between:
-- **`nil`** = field not present in file
-- **`&value`** = field explicitly set (even if 0)
-
-This is more idiomatic Go and enables:
-- Detecting sparse sections (e.g., PreSuspendedMode)
-- Clean serialization (only write non-nil fields)
-- Semantic clarity without auxiliary tracking
-
-```go
-// Good: Use helper methods for ergonomic access
-startup := profile.GetCurrentSettings()
-if startup.PowerLimit != nil {
-    fmt.Printf("Power: %d%%\n", *startup.PowerLimit)
-}
-
-// Better: Use getters (handles nil automatically)
-fmt.Printf("Power: %d%%\n", startup.GetPowerLimit())
-
-// Best: Use unit-appropriate helpers
-fmt.Printf("Core Clock: +%d MHz\n", startup.GetCoreClkBoostMHz())
-```
-
-### V-F Curve Binary Format
-
-**Location:** `msiaf/vfcurve.go` (full specification in package-level comments)
-
-The voltage-frequency curve (`VFCurve`) uses a binary format stored as a hex blob in hardware profile `.cfg` files.
-
-**Quick Reference:**
-- **Header:** 12 bytes = `[version:uint32][count:uint32][reserved:float32=0.0]`
-- **Per point:** 12 bytes = `[voltage:float32][oc_ref:float32][offset:float32]`
-- **Inactive marker:** `oc_ref = 225.0` (stock behavior)
-- **Applied frequency:** `HardwareBoost(v) + offset` (hardware boost is driver-private)
-
-**Key Design Principle:** The `.cfg` blob alone is **insufficient** to compute exact GPU frequencies. The `vfcurve.go` implementation **only exposes authoritative data** extracted from the binary blob (voltage, oc_ref, offset). Users needing actual frequencies must use runtime tools (nvidia-smi, NVML, NvAPI).
-
-**For complete binary format specification**, see the package-level comments at the top of `msiaf/vfcurve.go`.
-
-
-
-#### Testing
-
-- Unit tests: `msiaf/vfcurve_test.go`
-- Integration tests use actual profile files from `LocalProfiles/`
-- Verify parsed values match MSI Afterburner UI (e.g., 1000 mV → +43 MHz offset)
-
-### Usage Example
-
-```go
-// Scan for profiles
-result, err := msiaf.Scan("LocalProfiles")
-
-// Load hardware profile for a specific GPU
-hwProfile, err := result.HardwareProfiles[0].LoadProfile()
-
-// Access settings
-startup := hwProfile.GetCurrentSettings()
-fmt.Printf("Power Limit: %d%%\n", startup.GetPowerLimit())
-fmt.Printf("Core Clock: +%d MHz\n", startup.GetCoreClkBoostMHz())
-fmt.Printf("Memory: +%d MHz\n", startup.GetMemClkBoostMHz())
-
-// Check if profile slot is populated
-slot := hwProfile.GetProfile(1)
-if slot != nil && !slot.IsEmpty {
-    fmt.Println("Profile1 is configured")
-}
-
-// Check for sparse sections
-if hwProfile.PreSuspendedMode.HasSettings() {
-    // Process pre-suspend state
-}
-```
-
-### Testing
-
-- Unit tests: `msiaf/profile_test.go`
-- Integration tests use actual profile files from `LocalProfiles/`
-- Tests verify pointer field semantics (nil vs &0)
+**End of Successful Session:**
+- [ ] Propose AGENT.md updates if new patterns discovered
+- [ ] Clean up any `tmp/` experiment directories
+- [ ] Ensure generated files are committed
