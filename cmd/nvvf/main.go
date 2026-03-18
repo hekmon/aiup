@@ -43,6 +43,7 @@ func main() {
 	verbose := flag.Bool("v", false, "Verbose output (show diagnostic info)")
 	listGPUs := flag.Bool("list", false, "List available NVIDIA GPUs and exit")
 	showHelp := flag.Bool("h", false, "Show help message")
+	showDiag := flag.Bool("diag", false, "Show detailed diagnostics (base curve + offsets separately)")
 	flag.Parse()
 
 	if *showHelp {
@@ -53,6 +54,14 @@ func main() {
 	// List GPUs mode
 	if *listGPUs {
 		if err := listAvailableGPUs(*verbose); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	if *showDiag {
+		if err := showDiagnostics(*gpuIndex); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -103,6 +112,8 @@ Flags:
   -v    Verbose output (show diagnostic info)
   -list
         List available NVIDIA GPUs and exit
+  -diag
+        Show detailed diagnostics (base curve + offsets separately)
   -h    Show this help message
 
 Examples:
@@ -321,4 +332,122 @@ func showSummary(nvapiPoints []nvvf.VFPoint) {
 	fmt.Printf("Hardware Base Frequency Range: %.0f - %.0f MHz\n", minFreq, maxFreq)
 	fmt.Printf("Voltage Range: %.0f - %.0f mV\n", minVolt, maxVolt)
 	fmt.Printf("Active V/F Points: %d / 128\n", activePoints)
+}
+
+// showDiagnostics displays base curve and offsets separately
+func showDiagnostics(gpuIndex int) error {
+	if gpuIndex < 0 {
+		gpuIndex = 0
+	}
+
+	fmt.Println("=== NVIDIA V-F Curve Diagnostics ===")
+	fmt.Println()
+	fmt.Println("This shows the TWO NvAPI endpoints separately:")
+	fmt.Println("  1. GetStatus (0x21537AD4)  → Hardware base curve")
+	fmt.Println("  2. GetControl (0x23F1B133) → User offsets")
+	fmt.Println()
+
+	points, err := nvvf.ReadNvAPIVF(gpuIndex)
+	if err != nil {
+		return err
+	}
+
+	// Show base curve
+	fmt.Println("┌─────────────────────────────────────────────────────────────┐")
+	fmt.Println("│ 1. BASE CURVE (from GetStatus - hardware pstate table)     │")
+	fmt.Println("└─────────────────────────────────────────────────────────────┘")
+	fmt.Printf("%4s | %8s | %10s\n", "mV", "Base MHz", "State")
+	fmt.Println("-----|----------|------------")
+	for i, p := range points {
+		state := ""
+		if p.BaseFreqMHz <= 300 {
+			state = "idle"
+		} else if p.BaseFreqMHz >= 2800 {
+			state = "boost"
+		}
+		fmt.Printf("%4d | %8d | %s\n", int(p.VoltageMV), int(p.BaseFreqMHz), state)
+		if i == 50 {
+			fmt.Println("  ... (showing key points only)")
+		}
+		if i > 100 {
+			break
+		}
+	}
+	fmt.Println()
+
+	// Show offsets
+	fmt.Println("┌─────────────────────────────────────────────────────────────┐")
+	fmt.Println("│ 2. OFFSETS (from GetControl - user applied offsets)        │")
+	fmt.Println("└─────────────────────────────────────────────────────────────┘")
+	fmt.Printf("%4s | %10s | %12s\n", "mV", "Offset MHz", "Status")
+	fmt.Println("-----|------------|--------------")
+	hasOffsets := false
+	for i, p := range points {
+		status := "no change"
+		if p.OffsetMHz != 0 {
+			status = fmt.Sprintf("%+.0f MHz", p.OffsetMHz)
+			hasOffsets = true
+		}
+		if i <= 50 || i > 100 || p.OffsetMHz != 0 {
+			fmt.Printf("%4d | %10.0f | %s\n", int(p.VoltageMV), p.OffsetMHz, status)
+		}
+		if i == 50 {
+			fmt.Println("  ... (showing key points only)")
+		}
+		if i > 100 {
+			break
+		}
+	}
+	fmt.Println()
+	if !hasOffsets {
+		fmt.Println("⚠️  NO OFFSETS DETECTED - Profile may be applied via .cfg file")
+		fmt.Println("    (MSI Afterburner hardware profiles ≠ NvAPI SetControl)")
+	}
+	fmt.Println()
+
+	// Show combined
+	fmt.Println("┌─────────────────────────────────────────────────────────────┐")
+	fmt.Println("│ 3. EFFECTIVE (Base + Offset = actual applied frequency)    │")
+	fmt.Println("└─────────────────────────────────────────────────────────────┘")
+	fmt.Printf("%4s | %10s | %10s | %10s\n", "mV", "Base", "Offset", "Effective")
+	fmt.Println("-----|------------|------------|------------")
+	for i, p := range points {
+		if i <= 50 || i > 100 {
+			fmt.Printf("%4d | %10d | %10.0f | %10d\n", int(p.VoltageMV), int(p.BaseFreqMHz), p.OffsetMHz, int(p.EffectiveMHz))
+		}
+		if i == 50 {
+			fmt.Println("  ... (showing key points only)")
+		}
+		if i > 100 {
+			break
+		}
+	}
+	fmt.Println()
+
+	// Summary
+	fmt.Println("=== Key Takeaways ===")
+	fmt.Println()
+	maxBase := 0.0
+	maxOffset := 0.0
+	for _, p := range points {
+		if p.BaseFreqMHz > maxBase {
+			maxBase = p.BaseFreqMHz
+		}
+		if p.OffsetMHz > maxOffset {
+			maxOffset = p.OffsetMHz
+		}
+		if -p.OffsetMHz > maxOffset {
+			maxOffset = -p.OffsetMHz
+		}
+	}
+	fmt.Printf("Max Base Frequency:    %.0f MHz (from driver pstate)\n", maxBase)
+	fmt.Printf("Max Offset Applied:    %.0f MHz (from NvAPI GetControl)\n", maxOffset)
+	fmt.Printf("Max Effective:         %.0f MHz (base + offset)\n", maxBase+maxOffset)
+	fmt.Println()
+	if maxOffset == 0 {
+		fmt.Println("💡 Your profile is likely applied via MSI Afterburner .cfg files,")
+		fmt.Println("   not through NvAPI's live SetControl API. Check LocalProfiles/ directory.")
+	}
+
+	return nil
 }
