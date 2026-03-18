@@ -29,6 +29,8 @@ Their work reverse-engineering ASUS GPU Tweak III and documenting NvAPI V-F curv
 | **Windows x64** | `nvapi64.dll` | ✅ Fully tested (including via WSL interop) |
 | **Linux x64 (native)** | `libnvidia-api.so.1` | ✅ Implemented (requires native Linux with NVIDIA driver) |
 
+**WSL Users:** Use the Windows build (`nvvf.exe`) directly from WSL. WSL's interop layer allows Windows binaries to access Windows NVIDIA drivers. The Linux build cannot be used on WSL because `libnvidia-api.so.1` is not available in WSL's Linux environment.
+
 Both platforms use **identical NvAPI function IDs and struct layouts**.
 
 ## Package API
@@ -85,7 +87,13 @@ type VFPoint struct {
 - **Linux x64** operating system (native, not WSL)
 - **NVIDIA display driver** installed (provides `libnvidia-api.so.1`)
 - **NVIDIA GPU** present in the system
-- **Note:** The Linux build cannot be tested on WSL because `libnvidia-api.so.1` is only available on native Linux systems. However, the Windows binary can run from WSL via interop and will access Windows drivers.
+
+**WSL Users:** Run the Windows build (`nvvf.exe`) directly from WSL. Example:
+```bash
+# From WSL terminal
+GOOS=windows go build -o nvvf.exe ./cmd/nvvf    # Build Windows binary
+./nvvf.exe -list                    # Works via WSL interop
+```
 
 ## Command-Line Tool
 
