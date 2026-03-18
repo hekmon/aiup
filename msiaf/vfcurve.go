@@ -30,8 +30,8 @@ import (
 //
 // Triplet Fields (per control point):
 //   - Bytes 0-3:  voltage (float32 LE) - voltage in mV (450-1240 mV range)
-//   - Bytes 4-7:  oc_ref (float32 LE) - OC Scanner reference frequency
-//   - Bytes 8-11: offset (float32 LE) - frequency offset in MHz
+//   - Bytes 4-7:  oc_ref (float32 LE) - OC Scanner reference frequency (cached from last scan)
+//   - Bytes 8-11: offset (float32 LE) - frequency offset from OC Scanner reference in MHz
 //
 // Field Ranges:
 //   - voltage:  450-1240 mV
@@ -44,21 +44,33 @@ import (
 //   - All triplet fields = 0.0: Padding after declared point count
 //
 // Three Curves in VF Editor:
-//   1. White dots (applied frequency): HardwareBoost(v) + offset
-//   2. Grey diagonal line: oc_ref (visual reference only)
-//   3. Hardware boost (implicit): AppliedFreq - offset (driver-private)
+//   1. White dots (applied frequency): OCScannerRef(v) + offset
+//   2. Grey diagonal line: oc_ref (OC Scanner reference from last scan)
+//   3. Stock boost curve: Queried live from driver (NOT stored in blob)
+//
+// Why store OC Scanner reference instead of stock curve?
+//   - Stock boost is driver-private and can be queried anytime (no need to cache)
+//   - OC Scanner results are user-specific historical data from a previous benchmark
+//   - Users tweak offsets relative to their GPU's actual OC Scanner results, not theoretical stock
+//   - The .cfg blob is self-contained: AppliedFreq = oc_ref + offset (no driver query needed)
 //
 // Flat Curve Undervolt Example (target 2875 MHz):
-//   Voltage   | Hardware Boost | Offset  | Applied Freq
-//   800 mV    | ~1840 MHz      | +1035   | 1840+1035 = 2875 MHz
+//   Voltage   | OC Scanner Ref | Offset  | Applied Freq
+//   800 mV    | ~1627 MHz*     | +1035   | 1627+1035 = 2662 MHz (*OC Scanner conservative at low voltage)
 //   950 mV    | ~2575 MHz      | +300    | 2575+300 = 2875 MHz
-//   1015 mV   | ~2875 MHz      | 0       | 2875+0 = 2875 MHz (crossover)
+//   1015 mV   | ~2875 MHz      | 0       | 2875+0 = 2875 MHz (crossover point)
 //   1240 mV   | ~3322 MHz      | -447    | 3322-447 = 2875 MHz
 //
+// Note: Low voltage points may show conservative OC Scanner results if the GPU
+// was unstable during the scan at those voltages, or if the user manually
+// adjusted those points after the OC Scanner run.
+//
 // DESIGN PRINCIPLE: Authoritative Data Only
-//   - We ONLY expose data extracted from the binary blob
-//   - We DO NOT estimate frequencies (requires driver-private hardware boost)
-//   - Users needing actual frequencies must use runtime tools (nvidia-smi, NVML)
+//   - We ONLY expose data extracted from the binary blob (voltage, oc_ref, offset)
+//   - We DO NOT estimate applied frequencies (requires computing oc_ref + offset)
+//   - The OC Scanner reference (oc_ref) is cached from the user's last scan
+//   - Stock boost curve is queried live from the driver (NOT stored in the blob)
+//   - Users needing actual runtime frequencies must use tools like nvidia-smi or NVML
 // ============================================================================
 
 // VFControlCurveVersion2 is version 2.0 of the VF curve format (current, only supported version).
@@ -94,7 +106,12 @@ const VFControlCurveMaxOCScannerRef = 3334.0
 // VFPoint represents a single control point on the VF curve.
 //
 // Each point defines a frequency offset at a specific voltage.
-// The actual frequency is: StockBoostCurve(voltage) + OffsetMHz
+// The applied frequency is: OCScannerRefMHz + OffsetMHz
+//
+// IMPORTANT: OCScannerRefMHz is NOT the stock hardware boost curve.
+// The stock curve is queried live from the driver and is NOT stored in the blob.
+// OCScannerRefMHz is the cached result from the user's last OC Scanner run.
+// Users tweak OffsetMHz relative to their GPU's actual OC Scanner results.
 type VFPoint struct {
 	// Index is the point position in the curve (0-based).
 	Index int
@@ -103,18 +120,28 @@ type VFPoint struct {
 	// Range: 450-1240 mV
 	VoltageMV float32
 
-	// OffsetMHz is the frequency offset in MHz from the stock boost curve.
-	// Positive = overclock, negative = undervolt, 0 = stock
+	// OffsetMHz is the frequency offset in MHz from the OC Scanner reference.
+	// Positive = overclock relative to OC Scanner results
+	// Negative = undervolt relative to OC Scanner results
+	// Zero = use OC Scanner reference frequency (no user adjustment)
 	OffsetMHz float32
 
-	// OCScannerRefMHz is the OC Scanner reference frequency (f2 field).
-	// This is the grey diagonal background line in the UI.
-	// Range: 675-3334 MHz. Does not affect actual frequencies.
+	// OCScannerRefMHz is the OC Scanner reference frequency (f1 field).
+	// This is the grey diagonal background line shown in the VF curve editor UI.
+	// It represents the user's last OC Scanner benchmark results cached at this voltage.
+	// Range: 675-3334 MHz for active points, 225.0 for inactive points (no OC Scanner data).
+	//
+	// Why this is stored: OC Scanner results are user-specific historical data that
+	// would be lost if not saved. The stock boost curve is driver-private and can
+	// be queried anytime, so there's no need to cache it.
+	//
+	// Applied frequency at this point: OCScannerRefMHz + OffsetMHz
 	OCScannerRefMHz float32
 
-	// IsActive indicates whether this point has a user-defined offset.
-	// Inactive points (OCScannerRef = 225.0) use stock behavior (offset = 0).
-	// Active points have custom offsets applied.
+	// IsActive indicates whether this point has been characterized by OC Scanner.
+	// Inactive points (OCScannerRefMHz = 225.0) have no OC Scanner data and use
+	// stock behavior (offset = 0). Active points have OC Scanner reference data
+	// and may have user-defined offsets applied.
 	IsActive bool
 }
 
@@ -132,6 +159,7 @@ type VFControlCurveInfo struct {
 
 	// RawTriplets contains the raw parsed triplet values for debugging.
 	// Each triplet is [voltage_mV, oc_ref_MHz, offset_MHz] for the current point.
+	// Applied frequency at each point = oc_ref + offset (when oc_ref != 225.0)
 	RawTriplets [][3]float32
 }
 
@@ -204,6 +232,9 @@ func UnmarshalVFControlCurve(hexData string) (*VFControlCurveInfo, error) {
 
 // buildVFPointsFromTriplets converts raw triplets to VFPoint slice.
 // Each triplet contains [voltage_mV, oc_ref_MHz, offset_MHz] for the current point.
+// - voltage_mV: The voltage point (450-1240 mV range)
+// - oc_ref_MHz: OC Scanner reference frequency from last scan (675-3334 MHz, or 225.0 if inactive)
+// - offset_MHz: User's frequency offset from OC Scanner reference
 func buildVFPointsFromTriplets(triplets [][3]float32) []VFPoint {
 	points := make([]VFPoint, 0, len(triplets))
 
@@ -230,9 +261,12 @@ func buildVFPointsFromTriplets(triplets [][3]float32) []VFPoint {
 	return points
 }
 
-// isPointActive determines if a point has a user-defined override.
-// Inactive points (OCScannerRef = 225.0) use stock behavior (offset = 0).
-// Active points (OCScannerRef = 675-3334) have custom offsets.
+// isPointActive determines if a point has OC Scanner reference data.
+// Inactive points (OCScannerRef = 225.0) have no OC Scanner data and use
+// stock behavior (offset = 0). This typically occurs at voltages the GPU
+// couldn't stabilize during the OC Scanner benchmark.
+// Active points (OCScannerRef = 675-3334) have cached OC Scanner reference data
+// and may have user-defined offsets applied.
 func isPointActive(ocScannerRef float32) bool {
 	// Check for inactive marker (with small tolerance for float precision)
 	diff := ocScannerRef - VFControlCurveInactiveMarker
@@ -426,9 +460,10 @@ func (c *VFControlCurveInfo) VersionString() string {
 	return fmt.Sprintf("%d.%d", major, minor)
 }
 
-// GetOCScannerReferenceAt returns the OC Scanner reference frequency (f2) at a given voltage.
+// GetOCScannerReferenceAt returns the OC Scanner reference frequency (f1) at a given voltage.
 // This is the grey diagonal background line shown in the VF curve editor UI.
-// It is a visual reference cached from a previous OC Scanner run, not a control value.
+// It represents the user's last OC Scanner benchmark results cached at this voltage.
+// This is NOT the stock hardware boost curve (which is queried live from the driver).
 // Returns 0 if no point exists near the specified voltage.
 func (c *VFControlCurveInfo) GetOCScannerReferenceAt(voltageMV float32) float32 {
 	point := c.GetPointByVoltage(voltageMV)
@@ -438,9 +473,12 @@ func (c *VFControlCurveInfo) GetOCScannerReferenceAt(voltageMV float32) float32 
 	return point.OCScannerRefMHz
 }
 
-// GetOffsetAt returns the frequency offset (f0) at a given voltage.
-// This is the user-defined offset applied on top of the GPU's natural hardware boost.
-// Positive = overclock, negative = undervolt, 0 = stock behavior.
+// GetOffsetAt returns the frequency offset (f2) at a given voltage.
+// This is the user-defined offset applied on top of the OC Scanner reference frequency.
+// Applied frequency = OCScannerRef(voltage) + Offset
+// Positive = overclock relative to OC Scanner results
+// Negative = undervolt relative to OC Scanner results
+// Zero = use OC Scanner reference (no adjustment)
 // Returns 0 if no point exists near the specified voltage.
 func (c *VFControlCurveInfo) GetOffsetAt(voltageMV float32) float32 {
 	point := c.GetPointByVoltage(voltageMV)

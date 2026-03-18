@@ -29,6 +29,36 @@ func TestVFCurveParsing(t *testing.T) {
 		t.Errorf("Expected 127 parsed points, got %d", len(curve.Points))
 	}
 
+	// Debug: Print first 10 raw triplets to verify field interpretation
+	// f0=voltage_mV, f1=OCScannerRef_MHz (cached from last scan), f2=offset_MHz
+	t.Log("Raw triplets (first 10 points - mostly inactive):")
+	for i := 0; i < 10 && i < len(curve.RawTriplets); i++ {
+		t.Logf("  Point %d: [f0=%.2f, f1=%.2f, f2=%.2f]",
+			i, curve.RawTriplets[i][0], curve.RawTriplets[i][1], curve.RawTriplets[i][2])
+	}
+
+	// Debug: Find and print active points in the middle voltage range (800-1000 mV)
+	// f1 = OC Scanner reference (cached from last scan), f2 = user offset from that reference
+	t.Log("Active points in 800-1000 mV range:")
+	for i, triplet := range curve.RawTriplets {
+		voltage := triplet[0]
+		if voltage >= 800 && voltage <= 1000 && triplet[1] != 225.0 {
+			t.Logf("  Point %d: voltage=%.0f mV, OCScannerRef=%.0f MHz, Offset=%.0f MHz, Applied≈%.0f MHz",
+				i, voltage, triplet[1], triplet[2], triplet[1]+triplet[2])
+		}
+	}
+
+	// Debug: Show points at specific voltages to understand the pattern
+	t.Log("Sample points across voltage range:")
+	sampleVoltages := []float32{500, 700, 900, 1000, 1100, 1200}
+	for _, sampleV := range sampleVoltages {
+		point := curve.GetPointByVoltage(sampleV)
+		if point != nil {
+			t.Logf("  %.0f mV: OCScannerRef=%.0f MHz, Offset=%+.0f MHz, Active=%v",
+				point.VoltageMV, point.OCScannerRefMHz, point.OffsetMHz, point.IsActive)
+		}
+	}
+
 	// Count active vs inactive points
 	activeCount := 0
 	inactiveCount := 0
@@ -102,14 +132,15 @@ func TestVFCurveParsing(t *testing.T) {
 }
 
 // TestVFCurveInactiveMarker tests that inactive points have 225.0 OC Scanner reference.
+// Inactive points indicate voltages where OC Scanner has no cached data (GPU unstable during scan).
 func TestVFCurveInactiveMarker(t *testing.T) {
 	// Create a test curve with known inactive points
-	// Structure: [voltage_mV, oc_ref_MHz, offset_MHz]
+	// Structure: [voltage_mV, oc_ref_MHz (OC Scanner cached ref), offset_MHz]
 	triplets := [][3]float32{
-		{500.0, 225.0, 0.0},   // inactive (oc_ref=225.0)
-		{600.0, 750.0, 100.0}, // active
-		{700.0, 225.0, 0.0},   // inactive (oc_ref=225.0)
-		{800.0, 850.0, -50.0}, // active
+		{500.0, 225.0, 0.0},   // inactive (no OC Scanner data at this voltage)
+		{600.0, 750.0, 100.0}, // active (OC Scanner ref=750 MHz, user offset=+100 MHz)
+		{700.0, 225.0, 0.0},   // inactive (no OC Scanner data at this voltage)
+		{800.0, 850.0, -50.0}, // active (OC Scanner ref=850 MHz, user offset=-50 MHz)
 	}
 
 	points := buildVFPointsFromTriplets(triplets)
@@ -140,13 +171,14 @@ func TestVFCurveInactiveMarker(t *testing.T) {
 }
 
 // TestVFCurveHelperMethods tests the GetOCScannerReferenceAt and GetOffsetAt helper methods.
+// OC Scanner reference is cached from the user's last scan, offset is applied on top of it.
 func TestVFCurveHelperMethods(t *testing.T) {
 	// Create a test curve with known values
-	// Structure: [voltage_mV, oc_ref_MHz, offset_MHz]
+	// Structure: [voltage_mV, oc_ref_MHz (OC Scanner cached), offset_MHz (user delta)]
 	triplets := [][3]float32{
-		{500.0, 225.0, 0.0},   // inactive point at 500 mV (oc_ref=225.0)
-		{600.0, 750.0, 100.0}, // active point at 600 mV
-		{800.0, 850.0, -50.0}, // active point at 800 mV
+		{500.0, 225.0, 0.0},   // inactive: no OC Scanner data, offset=0 (stock behavior)
+		{600.0, 750.0, 100.0}, // active: OC Scanner ref=750 MHz, applied≈850 MHz
+		{800.0, 850.0, -50.0}, // active: OC Scanner ref=850 MHz, applied≈800 MHz
 	}
 
 	points := buildVFPointsFromTriplets(triplets)
