@@ -1,10 +1,10 @@
-# nvvf - NVIDIA V-F Curve Reader (Windows Only)
+# nvvf - NVIDIA V-F Curve Reader
 
 This package provides tools for reading NVIDIA GPU voltage-frequency (V-F) curves directly from the graphics driver using undocumented NvAPI calls.
 
 ## Purpose
 
-The `nvvf` package reads **live V-F curve data from the NVIDIA driver** on Windows systems. This provides:
+The `nvvf` package reads **live V-F curve data from the NVIDIA driver** on Windows and Linux systems. This provides:
 
 - **Exact hardware base frequencies** from the driver's pstate table
 - **User-applied frequency offsets** from driver control settings
@@ -21,6 +21,15 @@ This data was previously only accessible through proprietary tools like MSI Afte
 - **Researcher:** Loong0x00 (GitHub)
 
 Their work reverse-engineering ASUS GPU Tweak III and documenting NvAPI V-F curve functions made this implementation possible.
+
+## Platform Support
+
+| Platform | Library | Status |
+|----------|---------|--------|
+| **Windows x64** | `nvapi64.dll` | ✅ Fully tested |
+| **Linux x64** | `libnvidia-api.so.1` | ✅ Implemented (WSL untested) |
+
+Both platforms use **identical NvAPI function IDs and struct layouts**.
 
 ## Package API
 
@@ -67,9 +76,16 @@ type VFPoint struct {
 
 ## Requirements
 
+### Windows
 - **Windows x64** operating system
 - **NVIDIA display driver** installed (provides `nvapi64.dll`)
 - **NVIDIA GPU** present in the system
+
+### Linux
+- **Linux x64** operating system
+- **NVIDIA display driver** installed (provides `libnvidia-api.so.1`)
+- **NVIDIA GPU** present in the system
+- **Note:** WSL (Windows Subsystem for Linux) support is untested
 
 ## Command-Line Tool
 
@@ -78,15 +94,16 @@ The `cmd/nvvf` tool provides quick access to V-F curve data:
 ```bash
 # Build
 cd aiup
-go build -o nvvf.exe ./cmd/nvvf
+go build -o nvvf.exe ./cmd/nvvf    # Windows
+go build -o nvvf ./cmd/nvvf        # Linux
 
 # Usage
-nvvf.exe              # Read all GPUs
-nvvf.exe -gpu 0       # Read GPU 0 only
-nvvf.exe -v           # Verbose output
-nvvf.exe -json        # JSON output
-nvvf.exe -list        # List available GPUs
-nvvf.exe -h           # Show help
+nvvf              # Read all GPUs
+nvvf -gpu 0       # Read GPU 0 only
+nvvf -v           # Verbose output
+nvvf -json        # JSON output
+nvvf -list        # List available GPUs
+nvvf -h           # Show help
 ```
 
 ### Example Output
@@ -144,7 +161,7 @@ Each V/F point contains:
 For complete GPU analysis, combine with the [`msiaf`](../msiaf/) package:
 
 ```go
-// Read live data from driver (Windows)
+// Read live data from driver (Windows/Linux)
 nvapiPoints, _ := nvvf.ReadNvAPIVF(0)
 
 // Read saved profile from .cfg file (cross-platform)
@@ -162,7 +179,7 @@ for i := range nvapiPoints {
 ```
 
 **Package responsibilities:**
-- `nvvf` → NvAPI driver access (Windows only)
+- `nvvf` → NvAPI driver access (Windows + Linux)
 - `msiaf` → MSI Afterburner .cfg file parsing (cross-platform)
 
 ## Use Cases
@@ -197,14 +214,15 @@ Analyze how user offsets affect the V-F curve at different voltage points.
 
 | Limitation | Reason |
 |------------|--------|
-| Windows only | NvAPI is Windows-specific (`nvapi64.dll`) |
+| NVIDIA only | This is NVIDIA-specific via NvAPI |
 | Undocumented functions | These NvAPI calls are not in the official SDK |
 | Function IDs may change | NVIDIA could change them in future drivers (though unlikely based on historical stability) |
-| No AMD/Intel support | This is NVIDIA-specific via NvAPI |
+| No AMD/Intel support | This implementation is NVIDIA-specific |
+| WSL support untested | Linux implementation uses libnvidia-api.so.1, WSL compatibility unknown |
 
 ## References
 
-- **LACT Issue #936:** https://github.com/ilya-zlobintsev/LACT/issues/936 (Blackwell struct discovery)
+- **LACT Issue #936:** https://github.com/ilya-zlobintsev/LACT/issues/936 (Blackwell struct discovery, Linux confirmation)
 - **LACT Project:** https://github.com/ilya-zlobintsev/LACT (Linux GPU control tool)
 - **NvAPI SDK:** https://github.com/NVIDIA/nvapi (official SDK, does NOT document these functions)
 
