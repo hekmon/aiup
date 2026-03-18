@@ -44,6 +44,7 @@ func main() {
 	listGPUs := flag.Bool("list", false, "List available NVIDIA GPUs and exit")
 	showHelp := flag.Bool("h", false, "Show help message")
 	showDiag := flag.Bool("diag", false, "Show detailed diagnostics (base curve + offsets separately)")
+	showDebug := flag.Bool("debug", false, "Show raw NvAPI struct bytes for troubleshooting")
 	flag.Parse()
 
 	if *showHelp {
@@ -62,6 +63,14 @@ func main() {
 
 	if *showDiag {
 		if err := showDiagnostics(*gpuIndex); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	if *showDebug {
+		if err := showDebugRaw(*gpuIndex); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -114,6 +123,8 @@ Flags:
         List available NVIDIA GPUs and exit
   -diag
         Show detailed diagnostics (base curve + offsets separately)
+  -debug
+        Show raw NvAPI struct bytes (for troubleshooting)
   -h    Show this help message
 
 Examples:
@@ -447,6 +458,69 @@ func showDiagnostics(gpuIndex int) error {
 	if maxOffset == 0 {
 		fmt.Println("💡 Your profile is likely applied via MSI Afterburner .cfg files,")
 		fmt.Println("   not through NvAPI's live SetControl API. Check LocalProfiles/ directory.")
+	}
+
+	return nil
+}
+
+// showDebugRaw displays raw bytes from NvAPI structs
+func showDebugRaw(gpuIndex int) error {
+	if gpuIndex < 0 {
+		gpuIndex = 0
+	}
+
+	fmt.Println("=== NvAPI Raw Struct Debug ===")
+	fmt.Println()
+	fmt.Println("WARNING: This shows internal NvAPI struct layout for debugging.")
+	fmt.Println()
+
+	// We can't access raw structs from the public API, so this is a placeholder
+	// that explains what WOULD be shown if we exposed raw data
+	fmt.Println("To debug control struct parsing, check:")
+	fmt.Println("  1. nvVfPointsCtrlBlackwell struct size: 9248 bytes (0x2420)")
+	fmt.Println("  2. Entry stride: 72 bytes (0x48)")
+	fmt.Println("  3. Offset field: int32 at byte 0 of each entry")
+	fmt.Println("  4. Expected: non-zero values if offsets applied")
+	fmt.Println()
+	fmt.Println("Current implementation returns parsed VFPoint data only.")
+	fmt.Println("For raw byte access, would need to modify nvvf package to expose internals.")
+	fmt.Println()
+
+	// Show what we CAN see
+	points, err := nvvf.ReadNvAPIVF(gpuIndex)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Parsed control data (from GetControl):")
+	fmt.Printf("  Total points: %d\n", len(points))
+
+	maxOffset := 0.0
+	nonZeroCount := 0
+	for _, p := range points {
+		if p.OffsetMHz != 0 {
+			nonZeroCount++
+			if p.OffsetMHz > maxOffset {
+				maxOffset = p.OffsetMHz
+			}
+			if -p.OffsetMHz > maxOffset {
+				maxOffset = -p.OffsetMHz
+			}
+		}
+	}
+
+	fmt.Printf("  Points with non-zero offset: %d / %d\n", nonZeroCount, len(points))
+	fmt.Printf("  Max absolute offset: %.0f MHz\n", maxOffset)
+	fmt.Println()
+
+	if nonZeroCount == 0 {
+		fmt.Println("⚠️  ALL OFFSETS ARE ZERO")
+		fmt.Println()
+		fmt.Println("Possible causes:")
+		fmt.Println("  1. No profile applied via NvAPI SetControl")
+		fmt.Println("  2. MSI Afterburner uses NVML/driver-level mechanism instead")
+		fmt.Println("  3. Profile applied via .cfg file (hardware profile)")
+		fmt.Println("  4. Struct parsing bug (check Blackwell entry stride = 72 bytes)")
 	}
 
 	return nil
