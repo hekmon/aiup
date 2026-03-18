@@ -8,41 +8,6 @@ import (
 	"unsafe"
 )
 
-// ReadNvAPIVF reads the complete, exact VF curve for GPU at index gpuIndex.
-//
-// This is the high-level convenience function that auto-detects the GPU
-// generation and calls the appropriate low-level function:
-//   - ReadNvAPIVFBlackwell() for RTX 50xx (Blackwell)
-//   - ReadNvAPIVFLegacy() for RTX 30/40xx (Pascal/Ampere/Ada)
-//
-// Each returned VFPoint contains:
-//   - VoltageMV    : voltage step in mV
-//   - BaseFreqMHz  : hardware base clock at that voltage (driver pstate table)
-//   - OffsetMHz    : user offset in MHz (same as f0 in the .cfg blob)
-//   - EffectiveMHz : base + offset = exact applied frequency
-//
-// Requires nvapi64.dll (installed with any NVIDIA display driver).
-// Windows x64 only.
-//
-// For direct generation-specific access, use:
-//   - ReadNvAPIVFBlackwell(gpuIndex) for RTX 50xx
-//   - ReadNvAPIVFLegacy(gpuIndex) for RTX 30/40xx
-func ReadNvAPIVF(gpuIndex int) ([]VFPoint, error) {
-	// Auto-detect: Try Blackwell first (newer GPUs), then legacy
-	points, err := ReadNvAPIVFBlackwell(gpuIndex)
-	if err == nil {
-		return points, nil
-	}
-
-	// Blackwell failed, try legacy
-	points, err = ReadNvAPIVFLegacy(gpuIndex)
-	if err != nil {
-		return nil, fmt.Errorf("NvAPI auto-detect failed (tried Blackwell and legacy): %w", err)
-	}
-
-	return points, nil
-}
-
 // ReadNvAPIVFBlackwell reads the V-F curve for RTX 50xx (Blackwell) GPUs.
 //
 // Each returned VFPoint contains:

@@ -1,5 +1,6 @@
 //go:build linux
 
+// Package nvvf provides tools for working with NVIDIA GPU voltage-frequency (V-F) curves.
 package nvvf
 
 /*
@@ -11,23 +12,23 @@ package nvvf
 typedef void* (*nvapi_query_t)(uint32_t);
 
 static void* load_nvapi() {
-    return dlopen("libnvidia-api.so.1", RTLD_LAZY);
+	return dlopen("libnvidia-api.so.1", RTLD_LAZY);
 }
 
 static void* get_nvapi_func(void* handle, const char* name) {
-    return dlsym(handle, name);
+	return dlsym(handle, name);
 }
 
 static void* call_nvapi_query(void* func, uint32_t id) {
-    return ((nvapi_query_t)func)(id);
+	return ((nvapi_query_t)func)(id);
 }
 
 static int32_t call_nvapi_func_0(void* func) {
-    return ((int32_t(*)(void))func)();
+	return ((int32_t(*)(void))func)();
 }
 
 static int32_t call_nvapi_func_2(void* func, void* arg1, void* arg2) {
-    return ((int32_t(*)(void*, void*))func)(arg1, arg2);
+	return ((int32_t(*)(void*, void*))func)(arg1, arg2);
 }
 */
 import "C"
@@ -36,15 +37,13 @@ import (
 	"unsafe"
 )
 
-// ---------------------------------------------------------------------------
-// Linux-specific NvAPI helper
-// ---------------------------------------------------------------------------
-
+// nvapiLinux holds the loaded library and query function.
 type nvapiLinux struct {
 	handle    unsafe.Pointer
 	queryFunc unsafe.Pointer
 }
 
+// loadNvAPILinux loads the NvAPI library on Linux.
 func loadNvAPILinux() (*nvapiLinux, error) {
 	handle := C.load_nvapi()
 	if handle == nil {
@@ -63,68 +62,28 @@ func loadNvAPILinux() (*nvapiLinux, error) {
 	}, nil
 }
 
+// close cleans up the loaded library.
 func (n *nvapiLinux) close() {
 	if n.handle != nil {
 		C.dlclose(n.handle)
 	}
 }
 
+// resolve returns the function pointer for the given NvAPI function ID.
 func (n *nvapiLinux) resolve(id uint32) unsafe.Pointer {
 	return C.call_nvapi_query(n.queryFunc, C.uint32_t(id))
 }
 
-func (n *nvapiLinux) call0(fn unsafe.Pointer) int32 {
-	return int32(C.call_nvapi_func_0(fn))
+// call0 calls an NvAPI function with 0 arguments.
+// Returns int32 cast to uint32 (Linux uses negative error codes).
+func (n *nvapiLinux) call0(fn unsafe.Pointer) uint32 {
+	return uint32(int32(C.call_nvapi_func_0(fn)))
 }
 
-func (n *nvapiLinux) call2(fn unsafe.Pointer, arg1, arg2 unsafe.Pointer) int32 {
-	return int32(C.call_nvapi_func_2(fn, arg1, arg2))
+// call2 calls an NvAPI function with 2 arguments.
+func (n *nvapiLinux) call2(fn unsafe.Pointer, arg1, arg2 unsafe.Pointer) uint32 {
+	return uint32(int32(C.call_nvapi_func_2(fn, arg1, arg2)))
 }
-
-// ---------------------------------------------------------------------------
-// High-level auto-detect function
-// ---------------------------------------------------------------------------
-
-// ReadNvAPIVF reads the complete, exact VF curve for GPU at index gpuIndex.
-//
-// This is the high-level convenience function that auto-detects the GPU
-// generation and calls the appropriate low-level function:
-//   - ReadNvAPIVFBlackwell() for RTX 50xx (Blackwell)
-//   - ReadNvAPIVFLegacy() for RTX 30/40xx (Pascal/Ampere/Ada)
-//
-// Each returned VFPoint contains:
-//   - VoltageMV    : voltage step in mV
-//   - BaseFreqMHz  : hardware base clock at that voltage (driver pstate table)
-//   - OffsetMHz    : user offset in MHz (same as f0 in the .cfg blob)
-//   - EffectiveMHz : base + offset = exact applied frequency
-//
-// Requires libnvidia-api.so.1 (installed with NVIDIA display drivers).
-// Linux x64 only.
-//
-// Note: WSL (Windows Subsystem for Linux) support is untested.
-//
-// For direct generation-specific access, use:
-//   - ReadNvAPIVFBlackwell(gpuIndex) for RTX 50xx
-//   - ReadNvAPIVFLegacy(gpuIndex) for RTX 30/40xx
-func ReadNvAPIVF(gpuIndex int) ([]VFPoint, error) {
-	// Auto-detect: Try Blackwell first (newer GPUs), then legacy
-	points, err := ReadNvAPIVFBlackwell(gpuIndex)
-	if err == nil {
-		return points, nil
-	}
-
-	// Blackwell failed, try legacy
-	points, err = ReadNvAPIVFLegacy(gpuIndex)
-	if err != nil {
-		return nil, fmt.Errorf("NvAPI auto-detect failed (tried Blackwell and legacy): %w", err)
-	}
-
-	return points, nil
-}
-
-// ---------------------------------------------------------------------------
-// Generation-specific functions (Linux implementation)
-// ---------------------------------------------------------------------------
 
 // ReadNvAPIVFBlackwell reads the V-F curve for RTX 50xx (Blackwell) GPUs.
 //

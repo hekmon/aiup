@@ -1,6 +1,6 @@
-//go:build windows
-
 // nvvf - NVIDIA V-F Curve Tool
+//
+// Supports both Windows (nvapi64.dll) and Linux (libnvidia-api.so.1).
 //
 // Unified command-line tool for testing all nvvf package functionality.
 // Reads voltage-frequency curves from NVIDIA GPUs via NvAPI.

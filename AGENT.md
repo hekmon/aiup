@@ -317,7 +317,127 @@ When investigating unknown formats:
 
 ---
 
-## 4. FAN CURVE SERIALIZATION
+## 4. CROSS-PLATFORM NVAPI ACCESS
+
+### Overview
+
+The `nvvf` package provides cross-platform access to NVIDIA GPU V-F (voltage-frequency) curve data using undocumented NvAPI functions. The same NvAPI function IDs work on both Windows and Linux, but the library loading and calling conventions differ.
+
+| Platform | Library | Build Tag | Loading Method |
+|----------|---------|-----------|----------------|
+| **Windows** | `nvapi64.dll` | `//go:build windows` | `syscall.LoadDLL()` + `syscall.SyscallN()` |
+| **Linux** | `libnvidia-api.so.1` | `//go:build linux` | cgo + `dlopen()`/`dlsym()` |
+
+### File Organization
+
+```
+nvvf/
+├── nvvf.go           # Shared: types, structs, constants, parsers, ReadNvAPIVF()
+├── nvvf_windows.go   # Windows: LoadNvAPI, ReadNvAPIVFBlackwell/Legacy
+└── nvvf_linux.go     # Linux: loadNvAPILinux (cgo), ReadNvAPIVFBlackwell/Legacy
+```
+
+### Shared Code (`nvvf.go`)
+
+**Contains:**
+- `VFPoint` type and all NvAPI struct definitions (legacy + Blackwell)
+- Function ID constants (`fnInitialize`, `fnEnumGPUs`, `fnVfGetStatus`, `fnVfGetControl`)
+- `ReadNvAPIVF()` auto-detect function (identical on both platforms)
+- Parser functions (`parseBlackwellVFPoints`, `parseLegacyVFPoints`, `round2`)
+
+**Does NOT contain:**
+- Platform-specific library loading code
+- NvAPI call implementations (different calling conventions)
+
+### Platform-Specific Code
+
+**Windows (`nvvf_windows.go`):**
+```go
+//go:build windows
+
+func ReadNvAPIVFBlackwell(gpuIndex int) ([]VFPoint, error) {
+    dll, err := syscall.LoadDLL("nvapi64.dll")
+    // ... use syscall.SyscallN() for calls
+    // Error codes: 0x00000000 = success, 0x8000xxxx = error
+}
+```
+
+**Linux (`nvvf_linux.go`):**
+```go
+//go:build linux
+
+/*
+#cgo LDFLAGS: -ldl
+#include <dlfcn.h>
+// ... cgo helpers for dlopen/dlsym
+*/
+import "C"
+
+func ReadNvAPIVFBlackwell(gpuIndex int) ([]VFPoint, error) {
+    nvapi, err := loadNvAPILinux()
+    // ... use cgo call wrappers (call0, call2)
+    // Error codes: 0 = success, negative integers = error
+}
+```
+
+### Key Design Decisions
+
+**1. Separate Call Conventions**
+- Windows uses `syscall.SyscallN(fn, args...)` with `uintptr` arguments
+- Linux uses cgo with `unsafe.Pointer` arguments
+- **Do NOT** try to abstract this with a generic variadic function - it triggers `go vet` warnings about unsafe.Pointer conversions
+
+**2. Shared Parsers, Separate Calls**
+- Struct layouts and parsing logic are 100% identical → keep in `nvvf.go`
+- Library loading and calling conventions differ → keep in platform files
+- `ReadNvAPIVF()` auto-detect is identical → keep in `nvvf.go`
+
+**3. Error Code Differences**
+| Platform | Success | Error Format | Example |
+|----------|---------|--------------|---------|
+| Windows | `0x00000000` | `0x%08X` | `0x80001003` |
+| Linux | `0` | `%d` (signed) | `-9` (INCOMPATIBLE_STRUCT_VERSION) |
+
+**4. Type-Safe Call Wrappers (Linux)**
+To avoid `go vet` warnings about `uintptr` → `unsafe.Pointer` conversions, Linux uses type-specific wrappers:
+```go
+func (n *nvapiLinux) call0(fn unsafe.Pointer) uint32  // 0 args
+func (n *nvapiLinux) call2(fn unsafe.Pointer, arg1, arg2 unsafe.Pointer) uint32  // 2 args
+```
+
+### When to Use This Pattern
+
+Use this cross-platform pattern when:
+- ✅ Accessing platform-specific libraries with identical APIs (like NvAPI)
+- ✅ Calling conventions differ fundamentally (syscall vs cgo)
+- ✅ Data structures and logic are identical across platforms
+
+**Do NOT use this pattern for:**
+- ❌ Simple platform detection (use build tags only)
+- ❌ Different APIs per platform (keep everything separate)
+- ❌ When the abstraction becomes more complex than the duplication
+
+### Testing Considerations
+
+| Platform | Status | Notes |
+|----------|--------|-------|
+| Windows (native) | ✅ Tested | Windows binary runs on Windows with nvapi64.dll |
+| Windows binary on WSL | ✅ Tested | WSL interop allows Windows .exe to access Windows nvapi64.dll |
+| Linux (native) | ❌ Untested | Requires native Linux with libnvidia-api.so.1 from NVIDIA driver |
+| Linux binary on WSL | ❌ Cannot test | libnvidia-api.so.1 not available in WSL's Linux environment |
+
+**Important:** WSL can run Windows binaries (which access Windows drivers), but the Linux build cannot be tested on WSL because `libnvidia-api.so.1` is only available on native Linux systems with NVIDIA drivers.
+
+**Pre-commit checks:**
+```bash
+go build ./...    # Builds current platform only
+go vet ./...      # Ensure no unsafe.Pointer warnings
+go test ./...     # Skip if no NVIDIA hardware
+```
+
+---
+
+## 5. FAN CURVE SERIALIZATION
 
 **Location:** `msiaf/fancurve.go`
 
@@ -350,7 +470,7 @@ The software auto fan control curve (`SwAutoFanControlCurve`) uses a 256-byte bi
 
 ---
 
-## 5. V-F CURVE BINARY FORMAT
+## 6. V-F CURVE BINARY FORMAT
 
 **Location:** `msiaf/vfcurve.go` (full specification in package-level comments)
 
@@ -379,7 +499,7 @@ The `.cfg` blob alone is **insufficient** to compute exact GPU frequencies. The 
 
 ---
 
-## 6. HARDWARE PROFILE PARSING
+## 7. HARDWARE PROFILE PARSING
 
 **Location:** `msiaf/profile.go`
 
@@ -472,7 +592,7 @@ if hwProfile.PreSuspendedMode.HasSettings() {
 
 ---
 
-## 7. WORKFLOW GUIDELINES
+## 8. WORKFLOW GUIDELINES
 
 ### When Working on GPU-Related Features
 
@@ -521,7 +641,7 @@ The `catalog` subpackage should:
 
 ---
 
-## 8. CODE QUALITY GUIDELINES
+## 9. CODE QUALITY GUIDELINES
 
 ### String Building
 
@@ -560,7 +680,7 @@ When moving files to subpackages:
 
 ---
 
-## 9. API USAGE EXAMPLES
+## 10. API USAGE EXAMPLES
 
 ### Basic Scanning
 
