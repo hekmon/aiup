@@ -228,7 +228,27 @@ This will:
 
 ---
 
-## 4. Workflow Guidelines
+## 4. Fan Curve Serialization
+
+The software auto fan control curve (`SwAutoFanControlCurve`) uses a 256-byte binary format stored in the MSI Afterburner configuration file.
+
+**Location:** `msiaf/fancurve.go`
+
+**Key characteristics:**
+- **Strict validation with detailed error reporting** - Uses `FanCurveError` type to provide field-level error information
+- **Version validation** - Must match `FanCurveBinaryFormatVersion` (0x00010000 = version 1.0)
+- **Temperature range validation** - -50 to 150°C (sanity checks, not hardware limits)
+- **Fan speed range validation** - 0-100% (physical limits)
+- **Point ordering validation** - Points MUST be sorted by temperature in ascending order for correct interpolation
+- **All parsing functions return errors** - No silent failures! This is critical for hardware safety - never apply corrupted fan curves
+
+**Binary format documentation:** The complete binary format specification is documented inline in `fancurve.go` (see comments at the top of the file). Do not duplicate this documentation elsewhere - keep it with the code.
+
+**Testing:** Unit tests are in `msiaf/fancurve_test.go`. Integration tests (config file parsing) are in `msiaf/globalconfig_test.go`.
+
+---
+
+## 5. Workflow Guidelines
 
 ### When Working on GPU-Related Features
 
@@ -277,7 +297,7 @@ The `catalog` subpackage should:
 
 ---
 
-## 5. Code Quality Guidelines
+## 6. Code Quality Guidelines
 
 ### String Building
 
@@ -312,7 +332,7 @@ When moving files to subpackages:
 
 ---
 
-## 6. API Usage Examples
+## 7. API Usage Examples
 
 ### Basic Scanning
 
@@ -370,7 +390,7 @@ func main() {
 
 ---
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 | Issue | Solution |
 |-------|----------|

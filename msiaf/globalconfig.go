@@ -139,6 +139,13 @@ type Settings struct {
 	SwAutoFanControlCurve  []byte
 	SwAutoFanControlCurve2 []byte
 
+	// Parsed fan control curves (populated after parsing)
+	// See fancurve.go for parsing logic
+	parsedCurve     *SwAutoFanControlCurveInfo
+	parsedCurveErr  error
+	parsedCurve2    *SwAutoFanControlCurveInfo
+	parsedCurve2Err error
+
 	// Power Management
 	RestoreAfterSuspendedMode bool
 	PauseMonitoring           bool
@@ -425,8 +432,12 @@ func parseSettingsField(s *Settings, key, value string) {
 		s.SwAutoFanControlPeriod = parseDuration(value)
 	case "SwAutoFanControlCurve":
 		s.SwAutoFanControlCurve = parseHexBlob(value)
+		// Parse the binary curve format (see fancurve.go)
+		s.parsedCurve, s.parsedCurveErr = UnmarshalSwAutoFanControlCurve(s.SwAutoFanControlCurve)
 	case "SwAutoFanControlCurve2":
 		s.SwAutoFanControlCurve2 = parseHexBlob(value)
+		// Parse the binary curve format (see fancurve.go)
+		s.parsedCurve2, s.parsedCurve2Err = UnmarshalSwAutoFanControlCurve(s.SwAutoFanControlCurve2)
 
 	case "RestoreAfterSuspendedMode":
 		s.RestoreAfterSuspendedMode = parseBool(value)

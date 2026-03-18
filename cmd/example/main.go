@@ -58,6 +58,17 @@ func main() {
 			fmt.Printf("    Sync (GPU linking):    %v\n", config.Settings.Sync)
 			fmt.Printf("    LinkThermal:           %v\n", config.Settings.LinkThermal)
 			fmt.Printf("    FanSync:               %v\n", config.Settings.FanSync)
+
+			// Display fan control curve if available
+			curve := config.Settings.GetFanControlCurve()
+			if curve != nil && len(curve.Points) > 0 {
+				fmt.Println()
+				fmt.Println("  Software Auto Fan Control Curve:")
+				fmt.Printf("    Version: %s, Points: %d\n", curve.VersionString(), len(curve.Points))
+				for i, point := range curve.Points {
+					fmt.Printf("    Point %d: %5.1f°C → %5.1f%% fan\n", i+1, point.Temperature, point.FanSpeed)
+				}
+			}
 		}
 		fmt.Println()
 	} else {
