@@ -1,10 +1,21 @@
-// Package nvvf provides tools for working with NVIDIA GPU voltage-frequency (V-F) curves.
+// Package nvvf provides tools for working with NVIDIA GPU voltage-frequency (V-F) curves and clock domains.
 //
 // # NvAPI V-F Curve Access (Windows and Linux)
 //
 // The ReadNvAPIVF functions read V-F curves directly from the NVIDIA driver using
 // undocumented NvAPI calls. This enables precise monitoring of GPU frequency/voltage
 // behavior that was previously only accessible through proprietary tools.
+//
+// # NvAPI GPU Information Access (Windows)
+//
+// The GetGPUName function retrieves the marketing name of an NVIDIA GPU (e.g., "NVIDIA GeForce RTX 5090").
+// This is useful for displaying GPU information to users or for logging purposes.
+//
+// # NvAPI Clock Domain Information (Windows)
+//
+// The ReadNvAPIClkDomains function queries clock domain information, including allowed min/max frequency
+// offset ranges for each domain (GPU core, memory, etc.). This is useful for validating overclocking
+// parameters before applying them.
 //
 // # Platform Support
 //
@@ -203,10 +214,11 @@ type nvVfPointsCtrlBlackwell struct {
 // ---------------------------------------------------------------------------
 
 const (
-	fnInitialize   = 0x0150E828
-	fnEnumGPUs     = 0xE5AC921F
-	fnVfGetStatus  = 0x21537AD4 // base hardware VF curve (no user offsets)
-	fnVfGetControl = 0x23F1B133 // user offsets (delta kHz per point)
+	fnInitialize        = 0x0150E828
+	fnEnumGPUs          = 0xE5AC921F
+	fnVfGetStatus       = 0x21537AD4 // base hardware VF curve (no user offsets)
+	fnVfGetControl      = 0x23F1B133 // user offsets (delta kHz per point)
+	fnClkDomainsGetInfo = 0x64B43A6A // clock domain ranges (allowed offset min/max)
 )
 
 // ---------------------------------------------------------------------------
@@ -297,6 +309,59 @@ func parseLegacyVFPoints(status nvVfPointsStatusLegacy, ctrl nvVfPointsCtrlLegac
 		})
 	}
 	return points
+}
+
+// ---------------------------------------------------------------------------
+// Clock Domain types (for ClkDomainsGetInfo)
+// ---------------------------------------------------------------------------
+
+// ClkDomainInfo represents information about a GPU clock domain.
+//
+// Clock domains are different clock regions on the GPU that can be
+// independently controlled. This includes:
+//   - Graphics clock (GPU core)
+//   - Memory clock (VRAM)
+//   - Processor clock
+//   - Video clock
+//
+// The MinOffsetKHz and MaxOffsetKHz values indicate the safe operating
+// range for frequency offsets in each domain.
+type ClkDomainInfo struct {
+	DomainID     uint32 // Domain identifier
+	Flags        uint32 // Domain flags
+	MinOffsetKHz int32  // Minimum allowed offset in kHz
+	MaxOffsetKHz int32  // Maximum allowed offset in kHz
+}
+
+// nvClkDomainInfoHeader is the header for NvAPI clock domain queries.
+//
+// Binary layout (16 bytes header + variable entries):
+//
+//	0x00: version (4 bytes) - must be (1 << 16) | entrySize
+//	0x04: size (4 bytes) - total struct size in bytes
+//	0x08: numDomains (4 bytes) - output: number of clock domains
+//	0x0C: reserved (4 bytes)
+//	0x10: entries[] - array of ClkDomainEntry structures
+type nvClkDomainInfoHeader struct {
+	Version    uint32 // 0x00: version number
+	Size       uint32 // 0x04: total struct size
+	NumDomains uint32 // 0x08: number of clock domains (output)
+	Reserved   uint32 // 0x0C: reserved/padding
+}
+
+// nvClkDomainEntry is the binary format for a single clock domain entry (16 bytes).
+//
+// Binary layout:
+//
+//	0x00: domainID (4 bytes) - clock domain identifier
+//	0x04: flags (4 bytes) - domain flags
+//	0x08: minOffsetKHz (4 bytes, signed) - minimum allowed offset
+//	0x0C: maxOffsetKHz (4 bytes, signed) - maximum allowed offset
+type nvClkDomainEntry struct {
+	DomainID     uint32 // 0x00: domain identifier
+	Flags        uint32 // 0x04: flags
+	MinOffsetKHz int32  // 0x08: minimum allowed offset in kHz
+	MaxOffsetKHz int32  // 0x0C: maximum allowed offset in kHz
 }
 
 // ---------------------------------------------------------------------------

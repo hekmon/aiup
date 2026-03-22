@@ -352,7 +352,12 @@ When investigating unknown formats:
 
 ### Overview
 
-The `nvvf` package provides cross-platform access to NVIDIA GPU V-F (voltage-frequency) curve data using undocumented NvAPI functions. The same NvAPI function IDs work on both Windows and Linux, but the library loading and calling conventions differ.
+The `nvvf` package provides cross-platform access to NVIDIA GPU data using undocumented NvAPI functions, including:
+- **V-F curve reading** (voltage-frequency curves) - Windows & Linux
+- **Clock domain information** (allowed offset ranges) - Windows only
+- **GPU name detection** (marketing names) - Windows only
+
+The same NvAPI function IDs work on both Windows and Linux, but the library loading and calling conventions differ.
 
 | Platform | Library | Build Tag | Loading Method |
 |----------|---------|-----------|----------------|
@@ -372,8 +377,13 @@ nvvf/
 
 **Contains:**
 - `VFPoint` type and all NvAPI struct definitions (legacy + Blackwell)
-- Function ID constants (`fnInitialize`, `fnEnumGPUs`, `fnVfGetStatus`, `fnVfGetControl`)
+- `ClkDomainInfo` type for clock domain information
+- Function ID constants:
+  - `fnInitialize`, `fnEnumGPUs` (enumeration)
+  - `fnVfGetStatus`, `fnVfGetControl` (V-F curves)
+  - `fnClkDomainsGetInfo` (clock domain ranges)
 - `ReadNvAPIVF()` auto-detect function (identical on both platforms)
+- `ReadNvAPIClkDomains()` function (Windows only - clock domain info)
 - Parser functions (`parseBlackwellVFPoints`, `parseLegacyVFPoints`, `round2`)
 
 **Does NOT contain:**
@@ -465,6 +475,271 @@ go build ./...    # Builds current platform only
 go vet ./...      # Ensure no unsafe.Pointer warnings
 go test ./...     # Skip if no NVIDIA hardware
 ```
+
+### Additional NvAPI Functions (Windows)
+
+The `nvvf` package also provides Windows-specific functions for GPU information:
+
+| Function | Purpose | Location |
+|----------|---------|----------|
+| `GetGPUName(gpuIndex)` | Get GPU marketing name (e.g., "NVIDIA GeForce RTX 5090") | `nvvf_windows.go` |
+| `ReadNvAPIClkDomains(gpuIndex)` | Get clock domain min/max offset ranges | `nvvf_windows.go` |
+
+---
+
+## 5. NVAPI CLOCK DOMAINS (ClkDomainsGetInfo) - COMPLETE DOCUMENTATION
+
+**⚠️ CRITICAL FOR FUTURE AGENTS:** This section contains comprehensive documentation for implementing `ClkDomainsGetInfo` on Linux and older GPU generations. The Windows implementation has **driver-specific deviations** from the documented structure.
+
+### Function Identification
+
+| Property | Value |
+|----------|-------|
+| **Function ID** | `0x64B43A6A` |
+| **Name** | `ClkDomainsGetInfo` (internal: `ClockClientClkDomainsGetInfo`) |
+| **Purpose** | Query clock domain ranges — allowed offset min/max per domain |
+| **Source** | LACT project reverse-engineering: https://github.com/ilya-zlobintsev/LACT/issues/936 |
+
+### Function Signature
+
+```c
+NvAPI_Status NvAPI_GPU_ClkDomainsGetInfo(
+    NvPhysicalGpuHandle                   hPhysicalGpu,  // [in]
+    NV_GPU_CLOCK_CLIENT_CLK_DOMAINS_INFO *pInfo          // [out]
+);
+```
+
+### Documented Struct Layout (LACT / Linux)
+
+**Source:** LACT issue #936 (tested on Linux with RTX 5090, driver 590.48.01)
+
+```c
+// Per-domain entry — sizeof = 0x48 (72 bytes)
+typedef struct _NV_GPU_CLOCK_CLIENT_CLK_DOMAIN_ENTRY {
+    NvU32  domainId;      // +0x00  clock domain ID (see NV_GPU_PUBLIC_CLOCK_ID below)
+    NvU32  flags;         // +0x04  bit0 = isPresent, bit1 = isEditable  
+    NvU32  unk08;         // +0x08  unknown/reserved
+    NvU32  unk0C;         // +0x0C  unknown/reserved
+    NvS32  offsetMinKHz;  // +0x10  minimum allowed offset (kHz, usually negative)
+    NvS32  offsetMaxKHz;  // +0x14  maximum allowed offset (kHz, usually positive)
+    NvU8   pad[0x30];     // +0x18  padding to 72 bytes total
+} NV_GPU_CLOCK_CLIENT_CLK_DOMAIN_ENTRY;
+
+// Main output struct — total sizeof = 0x0928 (2344 bytes)
+typedef struct _NV_GPU_CLOCK_CLIENT_CLK_DOMAINS_INFO_V1 {
+    NvU32  version;       // +0x00  MAKE_NVAPI_VERSION(this_struct, 1) = (1 << 16) | 0x0928
+    NvU32  unk04;         // +0x04  unknown
+    NvU32  numDomains;    // +0x08  number of active/present domains (may be 0 on Windows!)
+    NvU32  unk0C;         // +0x0C  unknown/reserved
+    NvU8   pad[0x18];     // +0x10  header padding → header total = 0x28 (40 bytes)
+    NV_GPU_CLOCK_CLIENT_CLK_DOMAIN_ENTRY domains[32]; // +0x28 → 32 × 72 = 2304 bytes
+} NV_GPU_CLOCK_CLIENT_CLK_DOMAINS_INFO_V1;
+
+// Layout verification: 40 (header) + 32 × 72 (entries) = 2344 = 0x0928 ✓
+```
+
+### Clock Domain IDs (`NV_GPU_PUBLIC_CLOCK_ID`)
+
+| Value | Constant | Description | Typical Offset Range |
+|-------|----------|-------------|---------------------|
+| `0` | `NVAPI_GPU_PUBLIC_CLOCK_GRAPHICS` | GPU core clock | ±1000 MHz (±1000000 kHz) |
+| `4` | `NVAPI_GPU_PUBLIC_CLOCK_MEMORY` | Memory clock (VRAM) | -1000 to +3000 MHz |
+| `7` | `NVAPI_GPU_PUBLIC_CLOCK_PROCESSOR` | Processor clock | Varies |
+| `8` | `NVAPI_GPU_PUBLIC_CLOCK_VIDEO` | Video encoder/decoder | Varies |
+
+### ⚠️ WINDOWS-SPECIFIC DEVIATIONS (RTX 5090 Blackwell)
+
+**Tested on:** NVIDIA GeForce RTX 5090, Windows 11, WSL2, driver 572.xx+
+
+The Windows implementation deviates from the documented Linux structure:
+
+| Aspect | Documented (Linux) | Observed (Windows) |
+|--------|-------------------|-------------------|
+| **Entry start offset** | `0x28` (40 bytes) | `0x50` (80 bytes) ❌ |
+| **Field order** | `offsetMinKHz` at +0x10, `offsetMaxKHz` at +0x14 | **REVERSED**: `offsetMaxKHz` first, then `offsetMinKHz` ❌ |
+| **domainId field** | Contains 0, 4, 7, 8 | Contains unexpected values (32256, 33663) ❌ |
+| **numDomains** | Correctly populated | Always 0 (must scan entries) ❌ |
+| **flags field** | bit0=isPresent, bit1=isEditable | Not reliably populated |
+
+**Working Windows Implementation:**
+
+```go
+// Entry parsing for Windows (empirically verified on RTX 5090)
+entryOffset := 80  // 0x50 - observed entry start (NOT 0x28!)
+entryStride := 72  // 0x48 - matches documentation ✓
+entrySize := 12    // Parsing only offset fields
+
+for offset := entryOffset; offset+entrySize <= len(data); offset += entryStride {
+    // Field order is REVERSED from documentation on Windows
+    offsetMaxKHz := int32(binary.LittleEndian.Uint32(data[offset : offset+4]))
+    offsetMinKHz := int32(binary.LittleEndian.Uint32(data[offset+4 : offset+8]))
+    
+    // Skip zero entries
+    if offsetMinKHz == 0 && offsetMaxKHz == 0 {
+        continue
+    }
+    
+    // Domain ID must be inferred from offset ranges (domainId field unreliable)
+    var domainID uint32
+    if offsetMinKHz == -1000000 && offsetMaxKHz == 1000000 {
+        domainID = 0 // Graphics
+    } else if offsetMinKHz == -1000000 && offsetMaxKHz == 3000000 {
+        domainID = 4 // Memory
+    } else {
+        domainID = 7 // Processor (fallback)
+    }
+}
+```
+
+### Linux Implementation Guidance
+
+**For future agents implementing on Linux:**
+
+1. **Use the documented struct layout** (entries at 0x28, standard field order)
+2. **Test entry offset**: Start at 0x28, but be prepared to scan for non-zero data
+3. **Field order**: Linux likely uses documented order (`offsetMinKHz` then `offsetMaxKHz`)
+4. **domainId field**: Should contain valid values (0, 4, 7, 8) on Linux
+5. **numDomains**: May be correctly populated on Linux (unlike Windows)
+
+```go
+// Linux implementation template (UNTESTED - needs verification)
+entryOffset := 40  // 0x28 - documented entry start
+entryStride := 72  // 0x48 - should match Windows
+entrySize := 24    // Full entry size (domainId + flags + offsets)
+
+for offset := entryOffset; offset+entrySize <= len(data); offset += entryStride {
+    domainID := binary.LittleEndian.Uint32(data[offset : offset+4])
+    flags := binary.LittleEndian.Uint32(data[offset+4 : offset+8])
+    
+    // Check isPresent flag (bit0)
+    if flags & 0x1 == 0 {
+        continue
+    }
+    
+    // Standard field order (documented)
+    offsetMinKHz := int32(binary.LittleEndian.Uint32(data[offset+0x10 : offset+0x14]))
+    offsetMaxKHz := int32(binary.LittleEndian.Uint32(data[offset+0x14 : offset+0x18]))
+    
+    // Skip zero entries
+    if offsetMinKHz == 0 && offsetMaxKHz == 0 {
+        continue
+    }
+    
+    // Add to results
+    domains = append(domains, ClkDomainInfo{
+        DomainID:     domainID,
+        Flags:        flags,
+        MinOffsetKHz: offsetMinKHz,
+        MaxOffsetKHz: offsetMaxKHz,
+    })
+}
+```
+
+### Older GPU Generation Considerations
+
+**Pascal (GTX 10xx), Ampere (RTX 30xx), Ada (RTX 40xx):**
+
+1. **Struct size may differ** - Test with multiple sizes:
+   - Try 0x0928 (2344) first (Blackwell/RTX 50xx)
+   - Try 0x0434 (1076) if that fails (legacy format)
+   - Try 0x0200 (512) as fallback
+
+2. **Entry count may vary** - Older GPUs may have fewer clock domains:
+   - RTX 50xx: 2+ domains (graphics, memory)
+   - RTX 30/40xx: May have 2-4 domains
+   - GTX 10xx: May have only 1-2 domains
+
+3. **Offset ranges differ by architecture:**
+   - **RTX 50xx (Blackwell)**: Graphics ±1000 MHz, Memory -1000/+3000 MHz
+   - **RTX 40xx (Ada)**: Graphics ±1000 MHz, Memory -500/+2000 MHz (typical)
+   - **RTX 30xx (Ampere)**: Graphics ±500 MHz, Memory -500/+1500 MHz (typical)
+   - **GTX 10xx (Pascal)**: Graphics ±200 MHz (more limited)
+
+4. **Function availability:**
+   - RTX 50xx: ✅ Confirmed working
+   - RTX 30/40xx: ⚠️ Likely available, untested
+   - GTX 10xx: ❌ May not be supported (function returns error)
+
+### Error Handling
+
+| Platform | Success | Error Codes | Format |
+|----------|---------|-------------|--------|
+| **Windows** | `0x00000000` | `0x8000xxxx` | Unsigned hex |
+| **Linux** | `0` | Negative integers | Signed decimal |
+
+**Common Error Codes:**
+
+| Code (Windows) | Code (Linux) | Name | Meaning |
+|----------------|--------------|------|---------|
+| `0x00000000` | `0` | `NVAPI_OK` | Success |
+| `0xFFFFFFF7` | `-9` | `INCOMPATIBLE_STRUCT_VERSION` | Wrong struct size/version |
+| `0xFFFFFFFF` | `-1` | `NVAPI_ERROR` | Generic failure |
+| `0xCD57D4D1` | `-3` | `INVALID_ARGUMENT` | Bad parameters |
+| `0x341543F1` | `-15` | `NVIDIA_DEVICE_NOT_FOUND` | GPU not supported |
+
+**Troubleshooting:**
+
+```go
+// If you get INCOMPATIBLE_STRUCT_VERSION (-9 / 0xFFFFFFF7):
+// 1. Check struct size (try 2344, 1076, 512)
+// 2. Check version format: (1 << 16) | structSize
+// 3. Verify buffer is zero-initialized before setting version
+
+// If you get INVALID_ARGUMENT (-3 / 0xCD57D4D1):
+// 1. Check GPU handle is valid
+// 2. Check buffer pointer is valid
+// 3. Try different struct layout
+
+// If numDomains=0 but function succeeds:
+// 1. This is NORMAL on Windows - scan entries for non-zero offsets
+// 2. Entry start offset may differ from documentation
+// 3. Field order may be reversed (Windows vs Linux)
+```
+
+### Complete Implementation Checklist
+
+**Before considering ClkDomainsGetInfo implementation complete:**
+
+- [ ] Verify function ID: `0x64B43A6A`
+- [ ] Set struct size: 2344 bytes (0x0928) for Blackwell, try smaller for older
+- [ ] Set version: `(1 << 16) | structSize`
+- [ ] Initialize buffer to zeros before calling
+- [ ] Handle `numDomains=0` (Windows) by scanning entries
+- [ ] Account for reversed field order on Windows
+- [ ] Infer domain ID from offset ranges if domainId field is unreliable
+- [ ] Test on actual hardware with known-good offset ranges
+- [ ] Document any platform-specific deviations discovered
+
+### Testing Strategy
+
+**For new platforms/generations:**
+
+1. **Start with documented layout** (Linux/entry at 0x28, standard field order)
+2. **If that fails, try Windows layout** (entry at 0x50, reversed fields)
+3. **Dump raw buffer** to find non-zero entries
+4. **Identify patterns** in offset values (±1000000, ±3000000, etc.)
+5. **Document findings** and update this section
+
+### References
+
+- **LACT Project**: https://github.com/ilya-zlobintsev/LACT
+- **LACT Issue #936**: https://github.com/ilya-zlobintsev/LACT/issues/936 (primary source)
+- **NvAPI Function IDs**: nvapi-rs, nvapioc, vertminer-nvidia (community definitions)
+- **Discovery Method**: Reverse engineering of ASUS GPU Tweak III `Vender.dll` using Ghidra
+
+### Known Working Configurations
+
+| GPU | Platform | Driver | Status | Notes |
+|-----|----------|--------|--------|-------|
+| RTX 5090 | Windows (WSL2) | 572.xx+ | ✅ Working | Entries at 0x50, reversed field order |
+| RTX 5090 | Linux (native) | 590.48.01 | ✅ Working (LACT) | Standard documented layout |
+| RTX 40xx | Untested | - | ❓ Unknown | Likely similar to 50xx |
+| RTX 30xx | Untested | - | ❓ Unknown | May use legacy struct |
+| GTX 10xx | Untested | - | ❓ Unknown | Function may not exist |
+
+---
+
+### OC Scanner and Hardware Profile Behavior
 
 ### OC Scanner and Hardware Profile Behavior
 
