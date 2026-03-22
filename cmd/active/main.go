@@ -6,8 +6,10 @@
 // This example shows the end-to-end workflow:
 //  1. Scan MSI Afterburner profiles (msiaf package)
 //  2. Read live V-F curve from NVIDIA GPU (nvvf package)
-//  3. Match profile slots against live data (msiaf.MatchProfileAgainstLive)
-//  4. Identify which profile slot is currently active
+//  3. Read GPU marketing name for easy identification (nvvf.GetGPUName)
+//  4. Read clock domain ranges for OC validation (nvvf.ReadNvAPIClkDomains)
+//  5. Match profile slots against live data (msiaf.MatchProfileAgainstLive)
+//  6. Identify which profile slot is currently active
 //
 // Usage:
 //
@@ -69,7 +71,33 @@ func main() {
 	fmt.Println()
 
 	// Step 2: Read live V-F curve from first NVIDIA GPU
-	fmt.Println("Step 2: Reading live V-F curve from NVIDIA GPU...")
+	fmt.Println("Step 2: Reading live GPU information...")
+
+	// Get GPU marketing name for easy identification
+	gpuName, err := nvvf.GetGPUName(0)
+	if err != nil {
+		fmt.Printf("Warning: Could not read GPU name: %v\n", err)
+		gpuName = "Unknown GPU"
+	}
+	fmt.Printf("GPU 0: %s\n", gpuName)
+
+	// Read clock domain ranges for OC validation
+	fmt.Println("\nStep 3: Reading clock domain information...")
+	clkDomains, err := nvvf.ReadNvAPIClkDomains(0)
+	if err != nil {
+		fmt.Printf("Warning: Could not read clock domains: %v\n", err)
+		fmt.Println("  (OC validation information will be unavailable)")
+	} else {
+		fmt.Println("Safe Overclocking Ranges:")
+		for _, domain := range clkDomains {
+			minMHz := float64(domain.MinOffsetKHz) / 1000.0
+			maxMHz := float64(domain.MaxOffsetKHz) / 1000.0
+			fmt.Printf("  %s: %+.0f MHz to %+.0f MHz\n", domain.Domain, minMHz, maxMHz)
+		}
+	}
+
+	// Read live V-F curve
+	fmt.Println("\nStep 4: Reading live V-F curve from NVIDIA GPU...")
 	livePoints, err := nvvf.ReadNvAPIVF(0)
 	if err != nil {
 		fmt.Printf("Error: Could not read live V-F curve: %v\n", err)
@@ -96,21 +124,23 @@ func main() {
 
 	// Display live V-F curve summary
 	fmt.Println("Live V-F Curve Summary:")
-	fmt.Printf("  Voltage range: %.0f - %.0f mV\n", getMinVoltage(livePoints), getMaxVoltage(livePoints))
+	fmt.Printf("  Voltage range: %.0f - %.0f mV\n", nvvf.VFMinVoltage(livePoints), nvvf.VFMaxVoltage(livePoints))
 
 	// Find min/max frequencies for active points
-	minFreq, maxFreq := getFreqRange(livePoints)
+	minFreq, maxFreq := nvvf.VFRange(livePoints)
 	fmt.Printf("  Frequency range: %.0f - %.0f MHz\n", minFreq, maxFreq)
+	fmt.Printf("  GPU: %s\n", gpuName)
 	fmt.Println()
 
-	// Step 3: Match each hardware profile against live data
-	fmt.Println("Step 3: Matching profiles against live V-F curve...")
+	// Step 5: Match each hardware profile against live data
+	fmt.Println("Step 5: Matching profiles against live V-F curve...")
 	fmt.Println("Using 10 MHz tolerance (accounts for minor driver variations)")
 	fmt.Println()
 
 	for i, profileInfo := range result.HardwareProfiles {
 		fmt.Printf("--- Profile %d: %s ---\n", i+1, filepath.Base(profileInfo.FilePath))
 		fmt.Printf("GPU: %s\n", profileInfo.GetGPUDescription())
+		fmt.Printf("Matching against: %s\n", gpuName)
 		fmt.Println()
 
 		// Load hardware profile
@@ -184,53 +214,4 @@ func main() {
 	}
 
 	fmt.Println("Profile matching complete.")
-}
-
-// getMinVoltage returns the minimum voltage from V-F points
-func getMinVoltage(points []nvvf.VFPoint) float64 {
-	if len(points) == 0 {
-		return 0
-	}
-	minVal := points[0].VoltageMV
-	for _, pt := range points[1:] {
-		if pt.VoltageMV < minVal {
-			minVal = pt.VoltageMV
-		}
-	}
-	return minVal
-}
-
-// getMaxVoltage returns the maximum voltage from V-F points
-func getMaxVoltage(points []nvvf.VFPoint) float64 {
-	if len(points) == 0 {
-		return 0
-	}
-	maxVal := points[0].VoltageMV
-	for _, pt := range points[1:] {
-		if pt.VoltageMV > maxVal {
-			maxVal = pt.VoltageMV
-		}
-	}
-	return maxVal
-}
-
-// getFreqRange returns min and max frequencies from active V-F points
-func getFreqRange(points []nvvf.VFPoint) (minFreq, maxFreq float64) {
-	if len(points) == 0 {
-		return 0, 0
-	}
-
-	// Initialize with first point
-	minFreq = points[0].BaseFreqMHz
-	maxFreq = points[0].BaseFreqMHz
-
-	for _, pt := range points[1:] {
-		if pt.BaseFreqMHz < minFreq {
-			minFreq = pt.BaseFreqMHz
-		}
-		if pt.BaseFreqMHz > maxFreq {
-			maxFreq = pt.BaseFreqMHz
-		}
-	}
-	return minFreq, maxFreq
 }

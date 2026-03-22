@@ -136,11 +136,19 @@ At the end of successful sessions (everything builds, tests pass, stable conclus
 ├── LocalProfiles/              # Test data (gitignored)
 │   └── *.cfg                   # Hardware profile files
 │
-├── nvvf/                       # Cross-platform NvAPI access
-│   ├── README.md               # Technical documentation for nvvf package
-│   ├── nvvf.go                 # Shared types, structs, parsers
-│   ├── nvvf_windows.go         # Windows syscall implementation
-│   └── nvvf_linux.go           # Linux cgo implementation
+├── nvvf/                       # Cross-platform NvAPI access (V-F curves, GPU names, clock domains)
+│   ├── README.md               # Complete API documentation and technical details
+│   ├── nvvf.go                 # VFPoint, ClkDomain types, helpers, ReadNvAPIVF()
+│   ├── vf.go                   # V-F curve structs and parsers
+│   ├── vf_windows.go           # Windows V-F implementations
+│   ├── vf_linux.go             # Linux V-F implementations
+│   ├── clkdomains.go           # ClkDomainInfo struct
+│   ├── clkdomains_windows.go   # Windows clock domain implementation
+│   ├── clkdomains_linux.go     # Linux clock domain implementation
+│   ├── gpuname.go              # indexOfByte() helper
+│   ├── gpuname_windows.go      # Windows GetGPUName() implementation
+│   ├── gpuname_linux.go        # Linux GetGPUName() implementation
+│   └── nvapi_linux.go          # Linux NvAPI loading helpers (cgo)
 │
 └── tmp/                        # Temporary experiment tools (gitignored)
     └── <experiment_name>/      # Remove after implementation complete
@@ -171,7 +179,7 @@ At the end of successful sessions (everything builds, tests pass, stable conclus
 |---------|---------|-------------|
 | `msiaf` (root) | Scanning, config parsing, value-added methods on types | `github.com/hekmon/aiup/msiaf` |
 | `msiaf/catalog` | Pure GPU/manufacturer lookup functions | `github.com/hekmon/aiup/msiaf/catalog` |
-| `nvvf` | Cross-platform NvAPI access (Windows + Linux) | `github.com/hekmon/aiup/nvvf` |
+| `nvvf` | Cross-platform NvAPI access: V-F curves, GPU marketing names, clock domain ranges | `github.com/hekmon/aiup/nvvf` |
 | `cmd/gencatalog` | Generator tool (not importable) | N/A |
 
 ---
@@ -711,7 +719,7 @@ Hardware profile files contain GPU-specific overclocking and fan settings.
 | **Scanning profiles** | `msiaf/scan.go` | File discovery, HardwareProfileInfo struct, Scan() function |
 | **Profile matching** | `msiaf/active.go` | MatchVFCurve(), MatchProfileAgainstLive(), FindBestMatch(), ProfileMatchResult type |
 | **GPU catalog lookup** | `msiaf/catalog/catalog.go` | LookupGPU(), LookupManufacturer(), GetFullGPUDescription() |
-| **Cross-platform NVAPI** | `nvvf/README.md` | Windows/Linux NvAPI access, API usage, struct layouts, OC Scanner behavior, technical details |
+| **Cross-platform NVAPI** | `nvvf/README.md` | V-F curves, GPU names, clock domains, API reference, struct layouts, OC Scanner behavior |
 | **NVAPI implementation** | `nvvf/nvvf.go` | Shared types, VFPoint struct, parsers, ReadNvAPIVF() auto-detect |
 | **Windows NVAPI** | `nvvf/nvvf_windows.go` | syscall.LoadDLL(), syscall.SyscallN() implementation |
 | **Linux NVAPI** | `nvvf/nvvf_linux.go` | cgo dlopen/dlsym implementation |

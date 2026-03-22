@@ -1,16 +1,15 @@
-# nvvf - NVIDIA V-F Curve Reader
+# nvvf - NVIDIA GPU Information Package
 
-This package provides tools for reading NVIDIA GPU voltage-frequency (V-F) curves directly from the graphics driver using undocumented NvAPI calls.
+This package provides tools for reading NVIDIA GPU information directly from the graphics driver using undocumented NvAPI calls.
 
 ## Purpose
 
-The `nvvf` package reads **live V-F curve data from the NVIDIA driver** on Windows and Linux systems. This provides:
+The `nvvf` package provides comprehensive access to NVIDIA GPU data on Windows and Linux:
 
-- **Current driver frequencies** from the driver's pstate table (includes OC Scanner/hardware profile modifications)
-- **Additional offsets** applied via NvAPI SetControl (typically 0 when using OC Scanner)
-- **Precise effective frequencies** (base + offset)
-
-This data was previously only accessible through proprietary tools like MSI Afterburner.
+- **V-F Curve Data**: Live voltage-frequency curves from the driver's pstate table
+- **GPU Marketing Name**: Human-readable GPU names (e.g., "NVIDIA GeForce RTX 5090")
+- **Clock Domain Ranges**: Safe overclocking limits for each clock domain
+- **VF Analysis Helpers**: Convenient functions for analyzing V-F curve data
 
 ⚠️ **Important:** OC Scanner and MSI Afterburner hardware profiles modify the driver's internal boost tables directly. NvAPI reads back these **already-modified** tables, not the stock hardware curve. See the "OC Scanner Behavior" section below.
 
@@ -36,6 +35,77 @@ Their work reverse-engineering ASUS GPU Tweak III and documenting NvAPI V-F curv
 Both platforms use **identical NvAPI function IDs and struct layouts**.
 
 ## Package API
+
+### Get GPU Marketing Name
+
+Retrieve the human-readable marketing name of an NVIDIA GPU:
+
+```go
+import "github.com/hekmon/aiup/nvvf"
+
+// Get GPU name (e.g., "NVIDIA GeForce RTX 5090")
+name, err := nvvf.GetGPUName(0) // GPU index 0
+if err != nil {
+    panic(err)
+}
+fmt.Printf("GPU 0: %s\n", name)
+```
+
+### Read Clock Domain Ranges
+
+Query safe overclocking ranges for each clock domain:
+
+```go
+import "github.com/hekmon/aiup/nvvf"
+
+// Get clock domain information
+domains, err := nvvf.ReadNvAPIClkDomains(0)
+if err != nil {
+    panic(err)
+}
+
+for _, d := range domains {
+    // d.Domain automatically formats as string (e.g., "Graphics Clock (GPU Core)")
+    minMHz := float64(d.MinOffsetKHz) / 1000.0
+    maxMHz := float64(d.MaxOffsetKHz) / 1000.0
+    fmt.Printf("%s: %+.0f MHz to %+.0f MHz\n", d.Domain, minMHz, maxMHz)
+}
+```
+
+**ClkDomain Type**: The `Domain` field uses the `ClkDomain` type which implements `fmt.Stringer`:
+
+```go
+// Well-known domain constants
+nvvf.DomainGraphics  // GPU core clock (ID: 0)
+nvvf.DomainMemory    // VRAM clock (ID: 4)
+nvvf.DomainProcessor // Processor clock (ID: 7)
+nvvf.DomainVideo     // Video clock (ID: 8)
+
+// Automatic string conversion
+fmt.Println(nvvf.DomainGraphics) // "Graphics Clock (GPU Core)"
+```
+
+### V-F Curve Analysis Helpers
+
+Convenience functions for analyzing V-F curve data:
+
+```go
+import "github.com/hekmon/aiup/nvvf"
+
+points, err := nvvf.ReadNvAPIVF(0)
+if err != nil {
+    panic(err)
+}
+
+// Get frequency range
+minFreq, maxFreq := nvvf.VFRange(points)
+fmt.Printf("Frequency: %.0f - %.0f MHz\n", minFreq, maxFreq)
+
+// Get voltage range
+minVolt := nvvf.VFMinVoltage(points)
+maxVolt := nvvf.VFMaxVoltage(points)
+fmt.Printf("Voltage: %.0f - %.0f mV\n", minVolt, maxVolt)
+```
 
 ### Auto-Detect GPU Generation
 
@@ -105,11 +175,11 @@ The package is organized by feature with platform-specific implementations:
 
 ```
 nvvf/
-├── nvvf.go                      # Core: VFPoint type, constants, ReadNvAPIVF() auto-detect
+├── nvvf.go                      # Core: VFPoint, ClkDomain type, constants, helpers
 ├── vf.go                        # V-F curve structs (legacy + Blackwell) + parsers
 ├── vf_windows.go                # Windows V-F implementations
 ├── vf_linux.go                  # Linux V-F implementations
-├── clkdomains.go                # ClkDomainInfo type
+├── clkdomains.go                # ClkDomainInfo struct
 ├── clkdomains_windows.go        # Windows clock domain implementation
 ├── clkdomains_linux.go          # Linux clock domain implementation (⚠️ UNTESTED)
 ├── gpuname.go                   # indexOfByte() helper
@@ -145,8 +215,8 @@ nvvf/
 |-------------|------|---------|
 | `0x21537AD4` | `ClockClientClkVfPointsGetStatus` | Read hardware base V-F curve |
 | `0x23F1B133` | `ClockClientClkVfPointsGetControl` | Read user frequency offsets |
-| `0x64B43A6A` | `ClockClientClkDomainsGetInfo` | Query clock domain offset ranges (Windows & Linux) |
-| `0xCEEE8E9F` | `NvAPI_GPU_GetFullName` | Get GPU marketing name (Windows only) |
+| `0x64B43A6A` | `ClockClientClkDomainsGetInfo` | Query clock domain offset ranges |
+| `0xCEEE8E9F` | `NvAPI_GPU_GetFullName` | Get GPU marketing name |
 
 ### Struct Sizes by Generation
 
@@ -457,6 +527,44 @@ Analyze how user offsets affect the V-F curve at different voltage points.
 | Function IDs may change | NVIDIA could change them in future drivers (though unlikely based on historical stability) |
 | No AMD/Intel support | This implementation is NVIDIA-specific |
 | WSL support untested | Linux implementation uses libnvidia-api.so.1, WSL compatibility unknown |
+
+## Quick Reference
+
+### Exported Types
+
+| Type | Purpose |
+|------|---------|
+| `VFPoint` | Voltage-frequency operating point from V-F curve |
+| `ClkDomain` | Clock domain identifier with `String()` method |
+| `ClkDomainInfo` | Clock domain information (domain, flags, min/max offsets) |
+
+### ClkDomain Constants
+
+| Constant | ID | Description |
+|----------|-----|-------------|
+| `DomainGraphics` | 0 | GPU core clock |
+| `DomainMemory` | 4 | VRAM clock |
+| `DomainProcessor` | 7 | Processor clock |
+| `DomainVideo` | 8 | Video encoder/decoder clock |
+
+### V-F Curve Functions
+
+| Function | Description |
+|----------|-------------|
+| `ReadNvAPIVF(gpuIndex)` | Auto-detect GPU generation, read V-F curve |
+| `ReadNvAPIVFBlackwell(gpuIndex)` | RTX 50xx (Blackwell) V-F curve |
+| `ReadNvAPIVFLegacy(gpuIndex)` | RTX 30/40xx (Pascal/Ampere/Ada) V-F curve |
+| `VFRange(points)` | Get min/max frequencies from VFPoints |
+| `VFMinVoltage(points)` | Get minimum voltage from VFPoints |
+| `VFMaxVoltage(points)` | Get maximum voltage from VFPoints |
+
+### GPU Information Functions
+
+| Function | Description |
+|----------|-------------|
+| `GetGPUName(gpuIndex)` | Get GPU marketing name (e.g., "NVIDIA GeForce RTX 5090") |
+| `ReadNvAPIClkDomains(gpuIndex)` | Get clock domain ranges for OC validation |
+
 
 ## References
 

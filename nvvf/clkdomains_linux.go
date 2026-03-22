@@ -129,18 +129,18 @@ func ReadNvAPIClkDomains(gpuIndex int) ([]ClkDomainInfo, error) {
 		}
 
 		// Infer domain ID from offset ranges (same as Windows)
-		var domainID uint32
+		var domain ClkDomain
 		switch {
 		case offsetMinKHz == -1000000 && offsetMaxKHz == 1000000:
-			domainID = 0 // Graphics
+			domain = DomainGraphics
 		case offsetMinKHz == -1000000 && offsetMaxKHz == 3000000:
-			domainID = 4 // Memory
+			domain = DomainMemory
 		default:
-			domainID = 7 // Processor (fallback)
+			domain = DomainProcessor
 		}
 
 		entry := ClkDomainInfo{
-			DomainID:     domainID,
+			Domain:       domain,
 			Flags:        0,
 			MinOffsetKHz: offsetMinKHz,
 			MaxOffsetKHz: offsetMaxKHz,

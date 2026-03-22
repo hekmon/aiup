@@ -137,22 +137,22 @@ func ReadNvAPIClkDomains(gpuIndex int) ([]ClkDomainInfo, error) {
 		// Infer domain ID from offset ranges
 		// The domainId field in the struct contains unexpected values,
 		// so we identify domains by their characteristic offset ranges
-		var domainID uint32
+		var domain ClkDomain
 		switch {
 		case offsetMinKHz == -1000000 && offsetMaxKHz == 1000000:
 			// ±1000 MHz is typical for GPU core clock
-			domainID = 0 // NVAPI_GPU_PUBLIC_CLOCK_GRAPHICS
+			domain = DomainGraphics
 		case offsetMinKHz == -1000000 && offsetMaxKHz == 3000000:
 			// -1000 to +3000 MHz is typical for GDDR6X memory
-			domainID = 4 // NVAPI_GPU_PUBLIC_CLOCK_MEMORY
+			domain = DomainMemory
 		default:
 			// Other domains (processor, video, etc.) have varying ranges
 			// Use conservative default
-			domainID = 7 // NVAPI_GPU_PUBLIC_CLOCK_PROCESSOR (fallback)
+			domain = DomainProcessor
 		}
 
 		entry := ClkDomainInfo{
-			DomainID:     domainID,
+			Domain:       domain,
 			Flags:        0, // flags field not reliably populated on Windows
 			MinOffsetKHz: offsetMinKHz,
 			MaxOffsetKHz: offsetMaxKHz,

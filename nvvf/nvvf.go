@@ -125,6 +125,37 @@ type VFPoint struct {
 	OCScanMHz    float64 // OC Scanner reference frequency (only from .cfg parsing, 0 from NvAPI)
 }
 
+// ClkDomain represents a GPU clock domain identifier.
+//
+// Clock domains are different clock regions on the GPU that can be
+// independently controlled. This type provides type safety and
+// human-readable string representation for domain IDs.
+type ClkDomain uint32
+
+// Well-known clock domain constants
+const (
+	DomainGraphics  ClkDomain = 0 // GPU core clock
+	DomainMemory    ClkDomain = 4 // VRAM clock
+	DomainProcessor ClkDomain = 7 // Processor clock
+	DomainVideo     ClkDomain = 8 // Video encoder/decoder clock
+)
+
+// String implements fmt.Stringer, returning a human-readable name for the domain.
+func (d ClkDomain) String() string {
+	switch d {
+	case DomainGraphics:
+		return "Graphics Clock (GPU Core)"
+	case DomainMemory:
+		return "Memory Clock (VRAM)"
+	case DomainProcessor:
+		return "Processor Clock"
+	case DomainVideo:
+		return "Video Clock"
+	default:
+		return fmt.Sprintf("Unknown Domain (ID: %d)", d)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // NvAPI function IDs
 // ---------------------------------------------------------------------------
@@ -179,4 +210,59 @@ func ReadNvAPIVF(gpuIndex int) ([]VFPoint, error) {
 
 func round2(v float64) float64 {
 	return math.Round(v*100) / 100
+}
+
+// ---------------------------------------------------------------------------
+// VFPoint helper functions
+// ---------------------------------------------------------------------------
+
+// VFRange returns the minimum and maximum frequencies from a slice of VFPoints.
+// Returns (0, 0) if the slice is empty.
+func VFRange(points []VFPoint) (minFreq, maxFreq float64) {
+	if len(points) == 0 {
+		return 0, 0
+	}
+
+	minFreq = points[0].BaseFreqMHz
+	maxFreq = points[0].BaseFreqMHz
+
+	for _, pt := range points[1:] {
+		if pt.BaseFreqMHz < minFreq {
+			minFreq = pt.BaseFreqMHz
+		}
+		if pt.BaseFreqMHz > maxFreq {
+			maxFreq = pt.BaseFreqMHz
+		}
+	}
+	return minFreq, maxFreq
+}
+
+// VFMinVoltage returns the minimum voltage from a slice of VFPoints.
+// Returns 0 if the slice is empty.
+func VFMinVoltage(points []VFPoint) float64 {
+	if len(points) == 0 {
+		return 0
+	}
+	minVal := points[0].VoltageMV
+	for _, pt := range points[1:] {
+		if pt.VoltageMV < minVal {
+			minVal = pt.VoltageMV
+		}
+	}
+	return minVal
+}
+
+// VFMaxVoltage returns the maximum voltage from a slice of VFPoints.
+// Returns 0 if the slice is empty.
+func VFMaxVoltage(points []VFPoint) float64 {
+	if len(points) == 0 {
+		return 0
+	}
+	maxVal := points[0].VoltageMV
+	for _, pt := range points[1:] {
+		if pt.VoltageMV > maxVal {
+			maxVal = pt.VoltageMV
+		}
+	}
+	return maxVal
 }
