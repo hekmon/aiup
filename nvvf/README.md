@@ -99,6 +99,44 @@ type VFPoint struct {
 
 For quick command-line access to V-F curve data, see the [`cmd/nvvf`](../cmd/nvvf/) tool.
 
+## Package Structure
+
+The package is organized by feature with platform-specific implementations:
+
+```
+nvvf/
+├── nvvf.go                      # Core: VFPoint type, constants, ReadNvAPIVF() auto-detect
+├── vf.go                        # V-F curve structs (legacy + Blackwell) + parsers
+├── vf_windows.go                # Windows V-F implementations
+├── vf_linux.go                  # Linux V-F implementations
+├── clkdomains.go                # ClkDomainInfo type
+├── clkdomains_windows.go        # Windows clock domain implementation
+├── clkdomains_linux.go          # Linux clock domain implementation (⚠️ UNTESTED)
+├── gpuname.go                   # indexOfByte() helper
+├── gpuname_windows.go           # Windows GetGPUName() implementation
+├── gpuname_linux.go             # Linux GetGPUName() implementation (⚠️ UNTESTED)
+├── nvapi_linux.go               # Linux NvAPI loading helpers (cgo)
+└── README.md                    # This documentation
+```
+
+### File Organization Principles
+
+| Principle | Explanation |
+|-----------|-------------|
+| **Feature-based** | Each feature (V-F curves, clock domains, GPU name) has its own files |
+| **Platform separation** | Windows and Linux implementations are in separate files with `//go:build` tags |
+| **Shared types** | Public types (`VFPoint`, `ClkDomainInfo`) are in common files |
+| **Shared helpers** | Internal helpers used across features are in feature-specific common files |
+| **Linux cgo helpers** | `nvapi_linux.go` contains cgo loading code (Windows uses `syscall` directly) |
+
+### Platform Support Notes
+
+| Feature | Windows | Linux |
+|---------|---------|-------|
+| V-F Curve Reading | ✅ Tested | ✅ Supported (same NvAPI functions) |
+| Clock Domains | ✅ Tested | ⚠️ UNTESTED (implementation based on Windows) |
+| GPU Name | ✅ Tested | ⚠️ UNTESTED (implementation based on Windows) |
+
 ## Technical Details
 
 ### NvAPI Functions Used

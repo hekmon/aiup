@@ -1,6 +1,5 @@
 //go:build linux
 
-// Package nvvf provides tools for working with NVIDIA GPU voltage-frequency (V-F) curves.
 package nvvf
 
 /*
@@ -36,54 +35,6 @@ import (
 	"fmt"
 	"unsafe"
 )
-
-// nvapiLinux holds the loaded library and query function.
-type nvapiLinux struct {
-	handle    unsafe.Pointer
-	queryFunc unsafe.Pointer
-}
-
-// loadNvAPILinux loads the NvAPI library on Linux.
-func loadNvAPILinux() (*nvapiLinux, error) {
-	handle := C.load_nvapi()
-	if handle == nil {
-		return nil, fmt.Errorf("libnvidia-api.so.1 not found (NVIDIA driver required)")
-	}
-
-	queryFunc := C.get_nvapi_func(handle, C.CString("nvapi_QueryInterface"))
-	if queryFunc == nil {
-		C.dlclose(handle)
-		return nil, fmt.Errorf("nvapi_QueryInterface not exported")
-	}
-
-	return &nvapiLinux{
-		handle:    handle,
-		queryFunc: queryFunc,
-	}, nil
-}
-
-// close cleans up the loaded library.
-func (n *nvapiLinux) close() {
-	if n.handle != nil {
-		C.dlclose(n.handle)
-	}
-}
-
-// resolve returns the function pointer for the given NvAPI function ID.
-func (n *nvapiLinux) resolve(id uint32) unsafe.Pointer {
-	return C.call_nvapi_query(n.queryFunc, C.uint32_t(id))
-}
-
-// call0 calls an NvAPI function with 0 arguments.
-// Returns int32 cast to uint32 (Linux uses negative error codes).
-func (n *nvapiLinux) call0(fn unsafe.Pointer) uint32 {
-	return uint32(int32(C.call_nvapi_func_0(fn)))
-}
-
-// call2 calls an NvAPI function with 2 arguments.
-func (n *nvapiLinux) call2(fn unsafe.Pointer, arg1, arg2 unsafe.Pointer) uint32 {
-	return uint32(int32(C.call_nvapi_func_2(fn, arg1, arg2)))
-}
 
 // ReadNvAPIVFBlackwell reads the V-F curve for RTX 50xx (Blackwell) GPUs.
 //
