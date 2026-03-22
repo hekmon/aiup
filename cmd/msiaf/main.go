@@ -1,10 +1,10 @@
-// Command example demonstrates how to use the msiaf package to scan MSI Afterburner profiles,
+// Command msiaf demonstrates how to use the msiaf package to scan MSI Afterburner profiles,
 // parse the global configuration file, load hardware-specific profile settings, and parse VF curves.
 //
 // Usage:
 //
 //	cd aiup
-//	go run cmd/example/main.go
+//	go run cmd/msiaf/main.go
 package main
 
 import (
@@ -16,6 +16,7 @@ import (
 )
 
 func main() {
+
 	// Define the LocalProfiles directory path
 	profilesDir := "LocalProfiles"
 

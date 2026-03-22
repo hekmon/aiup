@@ -248,3 +248,14 @@ func (r *ProfileMatchResult) String() string {
 		r.AvgDeviationMHz,
 		r.MaxDeviationMHz)
 }
+
+// StringWithoutSlotName returns the match result string without the slot name prefix.
+// Useful when the slot name is already displayed separately.
+func (r *ProfileMatchResult) StringWithoutSlotName() string {
+	return fmt.Sprintf("%.0f%% confidence (%d/%d points matched, avg deviation: %.1f MHz, max: %.1f MHz)",
+		r.MatchConfidence*100,
+		r.MatchedPoints,
+		r.TotalPoints,
+		r.AvgDeviationMHz,
+		r.MaxDeviationMHz)
+}

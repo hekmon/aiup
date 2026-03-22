@@ -124,8 +124,14 @@ At the end of successful sessions (everything builds, tests pass, stable conclus
 │       └── catalog_test.go
 │
 ├── cmd/
-│   └── gencatalog/             # GPU catalog generator tool
-│       └── main.go             # Fetches pci-ids, generates catalog_generated.go
+│   ├── active/                 # Windows-only: Match profiles against live V-F curve
+│   │   └── main.go             # Combines msiaf + nvvf for profile analysis
+│   ├── gencatalog/             # GPU catalog generator tool
+│   │   └── main.go             # Fetches pci-ids, generates catalog_generated.go
+│   ├── msiaf/                  # Example: Pure msiaf package usage
+│   │   └── main.go             # Scan profiles, parse configs (no hardware required)
+│   └── nvvf/                   # Example: Live V-F curve reading
+│       └── main.go             # Read NVIDIA GPU V-F data via NvAPI (requires GPU)
 │
 ├── LocalProfiles/              # Test data (gitignored)
 │   └── *.cfg                   # Hardware profile files
@@ -956,6 +962,27 @@ When moving files to subpackages:
 
 ## 10. API USAGE EXAMPLES
 
+### Command-Line Examples
+
+The project includes three example programs in the `cmd/` directory:
+
+| Example | Purpose | Requirements |
+|---------|---------|--------------|
+| `cmd/msiaf/main.go` | Scan MSI Afterburner profiles and configs | None (offline parsing) |
+| `cmd/nvvf/main.go` | Read live V-F curves from NVIDIA GPU | NVIDIA GPU with NvAPI |
+| `cmd/active/main.go` | Match profiles against live V-F curve | Windows + NVIDIA GPU |
+
+**Build and run:**
+```bash
+# Windows-only example (profile matching)
+GOOS=windows GOARCH=amd64 go build -o active.exe ./cmd/active/
+.\active.exe  # Scans C:\Program Files (x86)\MSI Afterburner\Profiles by default
+
+# Cross-platform examples
+go run cmd/msiaf/main.go  # Profile scanning (Linux/Windows)
+go run cmd/nvvf/main.go   # Live V-F reading (requires GPU)
+```
+
 ### Basic Scanning
 
 ```go
@@ -1008,6 +1035,67 @@ func main() {
     desc := catalog.GetFullGPUDescription("10DE", "2B85", "89EC1043")
     // Returns: "ASUS NVIDIA GeForce RTX 5090"
 }
+```
+
+### Profile Matching (Windows + NVIDIA GPU)
+
+Match MSI Afterburner profiles against live V-F curve data:
+
+```go
+package main
+
+import (
+    "fmt"
+    "github.com/hekmon/aiup/msiaf"
+    "github.com/hekmon/aiup/nvvf"
+)
+
+func main() {
+    // Step 1: Scan profiles
+    result, err := msiaf.Scan("LocalProfiles")
+    
+    // Step 2: Read live V-F curve from GPU 0
+    livePoints, err := nvvf.ReadNvAPIVF(0)
+    
+    // Build liveFreqs map: voltage (mV) -> frequency (MHz)
+    liveFreqs := make(map[float32]float64)
+    for _, pt := range livePoints {
+        liveFreqs[float32(pt.VoltageMV)] = pt.BaseFreqMHz
+    }
+    
+    // Step 3: Load hardware profile
+    hwProfile, err := result.HardwareProfiles[0].LoadProfile()
+    
+    // Step 4: Match all slots against live data (10 MHz tolerance)
+    results, err := msiaf.MatchProfileAgainstLive(liveFreqs, hwProfile, 10.0)
+    
+    // Step 5: Find best match (50% confidence threshold)
+    bestResult, isMatch := msiaf.FindBestMatch(results, 0.5)
+    
+    // Display results
+    for _, r := range results {
+        marker := "  "
+        if r.Slot == bestResult.Slot && isMatch {
+            marker = "← "
+        }
+        fmt.Printf("  %s%s: %s\n", marker, r.SlotName, r.String())
+    }
+}
+```
+
+**Key Functions:**
+- `msiaf.MatchProfileAgainstLive()` - Compare all profile slots against live data
+- `msiaf.MatchVFCurve()` - Compare single curve against live data
+- `msiaf.FindBestMatch()` - Find slot with highest confidence
+- `ProfileMatchResult.IsMatch(threshold)` - Check if match meets confidence threshold
+
+**Output Example:**
+```
+  Startup:     100% confidence (73/73 points matched, avg deviation: 0.0 MHz)
+  Profile1:    100% confidence (73/73 points matched, avg deviation: 0.0 MHz)
+  Profile2:    0% confidence (0/0 points matched, avg deviation: 0.0 MHz)
+  
+✓ Status: Normal - Startup profile is applied and matches a saved profile
 ```
 
 ---
