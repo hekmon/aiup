@@ -176,6 +176,201 @@ At the end of successful sessions (everything builds, tests pass, stable conclus
 
 ---
 
+## 🖥️ PLATFORM DETECTION AND EXPERIMENT EXECUTION
+
+### Overview
+
+This project supports **cross-platform development** with different execution strategies depending on your environment. The key distinction is between **WSL** (which can access Windows drivers) and **native Linux** (which requires Linux NVIDIA drivers).
+
+| Environment | Platform | Experiment Strategy |
+|-------------|----------|---------------------|
+| **WSL** (Windows Subsystem for Linux) | Linux userspace, Windows kernel | Compile Windows `.exe`, execute via WSL interop |
+| **Native Windows** | Windows | Compile and run Windows `.exe` natively |
+| **Native Linux** | Linux | Compile and run Linux binary natively |
+
+### Platform Detection
+
+**Detect your environment using these methods:**
+
+```bash
+# Method 1: Check kernel version (most reliable)
+uname -r
+# WSL: Contains "microsoft", "WSL", or "microsoft-standard"
+# Linux: Standard kernel version (e.g., "5.15.0-76-generic")
+
+# Method 2: Check if Windows interop is available
+which cmd.exe 2>/dev/null && echo "WSL" || echo "Native Linux"
+# WSL: Returns path to cmd.exe
+# Linux: Returns nothing
+
+# Method 3: Check mount points for Windows drives
+ls /mnt/c 2>/dev/null && echo "WSL" || echo "Native Linux or Windows"
+# WSL: Windows drives mounted under /mnt/
+# Linux: No /mnt/c unless manually mounted
+
+# On Windows PowerShell:
+# You're on native Windows if this is your native shell
+```
+
+### Experiment Execution by Platform
+
+#### WSL (Windows Subsystem for Linux)
+
+**Key Principle:** WSL can access Windows drivers and DLLs through interop, but Linux binaries cannot access Windows-specific libraries.
+
+| Task | Strategy | Command |
+|------|----------|---------|
+| **Compile for testing** | Windows target | `GOOS=windows go build -o tmp/exp.exe ./tmp/exp/` |
+| **Execute experiment** | Run `.exe` via WSL interop | `./tmp/exp.exe` (WSL auto-executes Windows binaries) |
+| **Access NVIDIA GPU** | Windows `nvapi64.dll` | Windows binary has direct access |
+| **File paths** | Use Windows paths for Windows binary | `C:\path\to\LocalProfiles\` or translate via `/mnt/c/` |
+
+**Why Windows binaries on WSL?**
+- WSL's Linux environment cannot load `nvapi64.dll` (Windows-only DLL)
+- Windows `.exe` executed from WSL can access Windows drivers through interop
+- NvAPI functions work correctly through the WSL interop layer
+- This is the **only** way to access NVIDIA GPU data from WSL
+
+**Example WSL workflow:**
+```bash
+# 1. Create experiment in tmp/
+mkdir -p tmp/readvf
+cd tmp/readvf
+
+# 2. Write your Go code (imports github.com/hekmon/aiup/nvvf)
+# The nvvf package will use Windows syscalls when built for Windows
+
+# 3. Build for Windows (critical step!)
+GOOS=windows go build -o readvf.exe .
+
+# 4. Run the Windows binary (WSL handles execution automatically)
+./readvf.exe
+
+# 5. Clean up when done
+cd ../..
+rm -rf tmp/readvf
+```
+
+#### Native Windows
+
+**Key Principle:** Everything runs natively - no cross-compilation needed.
+
+| Task | Strategy | Command |
+|------|----------|---------|
+| **Compile** | Native Windows | `go build -o tmp/exp.exe ./tmp/exp/` |
+| **Execute** | Run `.exe` natively | `tmp\exp.exe` |
+| **Access NVIDIA GPU** | Direct `nvapi64.dll` access | Native Windows API calls |
+
+**Example Windows workflow:**
+```powershell
+# 1. Create experiment
+mkdir tmp\readvf
+cd tmp\readvf
+
+# 2. Write Go code
+
+# 3. Build (native Windows)
+go build -o readvf.exe .
+
+# 4. Run
+.\readvf.exe
+
+# 5. Clean up
+cd ..
+rmdir /s /q readvf
+```
+
+#### Native Linux
+
+**Key Principle:** Linux binaries with cgo access to `libnvidia-api.so.1`.
+
+| Task | Strategy | Command |
+|------|----------|---------|
+| **Compile** | Native Linux (cgo) | `go build -o tmp/exp ./tmp/exp/` |
+| **Execute** | Run Linux binary | `./tmp/exp` |
+| **Access NVIDIA GPU** | `libnvidia-api.so.1` via cgo | Requires NVIDIA driver installed |
+
+**Important Notes:**
+- Requires NVIDIA driver with `libnvidia-api.so.1` installed
+- Cannot be tested on WSL (WSL doesn't expose Linux NVIDIA drivers)
+- Tested only on native Linux with NVIDIA GPU
+
+**Example Linux workflow:**
+```bash
+# 1. Create experiment
+mkdir -p tmp/readvf
+cd tmp/readvf
+
+# 2. Write Go code
+
+# 3. Build (native Linux with cgo)
+go build -o readvf .
+
+# 4. Run
+./readvf
+
+# 5. Clean up
+cd ../..
+rm -rf tmp/readvf
+```
+
+### Platform-Specific Build Tags
+
+When writing experiment code, use Go build tags to handle platform differences:
+
+```go
+//go:build windows || linux
+
+package main
+
+import (
+    "fmt"
+    "github.com/hekmon/aiup/nvvf"
+)
+
+func main() {
+    // nvvf.ReadNvAPIVF() works on both platforms
+    // - Windows: Uses syscall.LoadDLL("nvapi64.dll")
+    // - Linux: Uses cgo to load libnvidia-api.so.1
+    points, err := nvvf.ReadNvAPIVF(0)
+    if err != nil {
+        fmt.Printf("Error: %v\n", err)
+        return
+    }
+    fmt.Printf("V-F Points: %+v\n", points)
+}
+```
+
+### Quick Reference Table
+
+| Environment | Build Command | Output | Execution | Driver/Library Access |
+|-------------|---------------|--------|-----------|----------------------|
+| **WSL** | `GOOS=windows go build` | `.exe` | `./program.exe` | Windows `nvapi64.dll` ✓ |
+| **Windows** | `go build` | `.exe` | `.\program.exe` | Windows `nvapi64.dll` ✓ |
+| **Linux** | `go build` (requires cgo) | ELF binary | `./program` | `libnvidia-api.so.1` ✓ |
+
+### Common Pitfalls
+
+| Mistake | Symptom | Solution |
+|---------|---------|----------|
+| Building Linux binary on WSL | `error loading nvapi64.dll` | Build with `GOOS=windows` |
+| Running Windows binary on native Linux | `cannot execute binary file` | Build for Linux with cgo |
+| Assuming WSL = Linux for experiments | NvAPI calls fail | Remember: WSL needs Windows binaries for GPU access |
+| Not cleaning up `tmp/` | Cluttered workspace | Always `rm -rf tmp/<exp>/` after use |
+
+### Verification Checklist
+
+Before running experiments:
+
+- [ ] Identify environment (`uname -r`, check for WSL)
+- [ ] Select correct build target (Windows for WSL/native Windows, Linux for native Linux)
+- [ ] Verify driver/library access (`nvapi64.dll` on Windows/WSL, `libnvidia-api.so.1` on Linux)
+- [ ] Build with correct `GOOS` if cross-compiling (`GOOS=windows` on WSL)
+- [ ] Test with simple experiment first
+- [ ] Clean up `tmp/` directory after completion
+
+---
+
 ## 🎯 API DESIGN PHILOSOPHY
 
 ### Core Principles
