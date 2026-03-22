@@ -33,11 +33,12 @@ What are you building?
 ├── New binary format?              → msiaf/<format>.go (new file)
 ├── GPU manufacturer lookups?       → msiaf/catalog/ (hand-written)
 ├── GPU data table?                 → msiaf/catalog_generated.go (auto-generated)
-├── OC Scanner workflow?            → overclocking/ (see README.md)
-├── Profile comparison/diffing?     → overclocking/ (see README.md)
-├── Safety validation?              → overclocking/ (see README.md)
-├── Session management?             → overclocking/ (see README.md)
-├── High-level orchestration?       → overclocking/ (combines msiaf + nvvf)
+├── GPU discovery?                    → overclocking/discovery.go
+├── OC Scanner workflow?              → overclocking/ (see README.md)
+├── Profile comparison/diffing?       → overclocking/ (see README.md)
+├── Safety validation?                → overclocking/ (see README.md)
+├── Session management?               → overclocking/ (see README.md)
+├── High-level orchestration?         → overclocking/ (combines msiaf + nvvf)
 ├── Combining multiple sources?     → Method on existing type in root package
 ├── Thin wrapper around subpackage? → DON'T DO IT
 └── Utility/helper function?        → Method on the type users already have
@@ -80,9 +81,16 @@ go test ./...
 go vet ./...
 ```
 
-**And also check diagnostics:**
-- Use the `diagnostics` tool to check for gopls linting suggestions
-- Address any simplifications or improvements suggested (e.g., `strings.Cut`, deprecated APIs, style issues)
+**AI Agent Rule:** Use the `diagnostics` tool (powered by `gopls`) proactively:
+- Run `diagnostics` before presenting final results
+- Address all errors and warnings
+- Note: `diagnostics` does NOT show informational hints (blue lines in IDEs)
+
+**Catch informational hints:** If `golangci-lint` is available, run it:
+```bash
+golangci-lint run ./...
+```
+This catches patterns like `WriteString(fmt.Sprintf(...))` → `fmt.Fprintf()` that appear as blue lines in your IDE but not in `diagnostics`.
 
 **All checks must pass** before considering work complete.
 
@@ -96,6 +104,25 @@ At the end of successful sessions (everything builds, tests pass, stable conclus
 
 1. Present a draft synthesis of what should be added to AGENT.md
 2. Ask for approval before making changes
+
+**CRITICAL: AGENT.md is an INDEX, not detailed documentation.**
+
+| AGENT.md | Package README.md |
+|----------|-------------------|
+| Quick reference tables | Complete API documentation |
+| File location index | Type and function signatures |
+| Decision tree pointers | Usage examples |
+| Cross-package navigation | Package-specific rules |
+
+**When updating AGENT.md:**
+- ✅ Add file names that were created (e.g., `discovery.go`)
+- ✅ Update decision tree with new capabilities
+- ✅ Mark implemented features with ✅
+- ❌ Do NOT add type definitions or function signatures
+- ❌ Do NOT add usage examples
+- ❌ Do NOT add package-specific rules
+
+**Rule:** If it's more than a line or two, it belongs in the package README.md, not AGENT.md.
 
 ---
 
@@ -155,8 +182,10 @@ At the end of successful sessions (everything builds, tests pass, stable conclus
 │   ├── gpuname_linux.go        # Linux GetGPUName() implementation
 │   └── nvapi_linux.go          # Linux NvAPI loading helpers (cgo)
 │
-├── overclocking/               # High-level overclocking orchestration
-│   └── README.md               # Package documentation and API guidelines (source files TBD)
+├── overclocking/               # High-level overclocking orchestration (combines msiaf + nvvf)
+│   ├── README.md               # Complete API documentation and package rules
+│   ├── discovery.go            # GPU discovery (ScanGPUs, GPUInfo, DiscoveryResult) ✅
+│   └── discovery_test.go       # Unit tests for discovery ✅
 │
 └── tmp/                        # Temporary experiment tools (gitignored)
     └── <experiment_name>/      # Remove after implementation complete
@@ -188,7 +217,7 @@ At the end of successful sessions (everything builds, tests pass, stable conclus
 | `msiaf` (root) | Scanning, config parsing, value-added methods on types | `github.com/hekmon/aiup/msiaf` |
 | `msiaf/catalog` | Pure GPU/manufacturer lookup functions | `github.com/hekmon/aiup/msiaf/catalog` |
 | `nvvf` | Cross-platform NvAPI access: V-F curves, GPU marketing names, clock domain ranges | `github.com/hekmon/aiup/nvvf` |
-| `overclocking` | High-level orchestration: OC Scanner, profile comparison, safety validation | `github.com/hekmon/aiup/overclocking` |
+| `overclocking` | High-level orchestration: GPU discovery ✅, OC Scanner, profile comparison, safety validation, session management (see README.md) | `github.com/hekmon/aiup/overclocking` |
 | `cmd/gencatalog` | Generator tool (not importable) | N/A |
 
 ---

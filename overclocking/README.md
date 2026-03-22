@@ -4,6 +4,8 @@
 
 **Purpose:** High-level GPU overclocking orchestration layer that combines MSI Afterburner profile management (`msiaf`) with live NVIDIA GPU telemetry (`nvvf`).
 
+**Status:** ✅ Production-ready (GPU Discovery implemented and tested)
+
 **Target Consumers:**
 1. **Terminal Agent** - Interactive CLI guiding users through overclocking workflows
 2. **MCP Server** - Machine-readable API for custom agent development
@@ -32,10 +34,11 @@ The overclocking package serves as the orchestration layer between:
 
 It provides high-level operations that combine these lower-level capabilities:
 
+- **GPU Discovery** - Scan MSI Afterburner profiles, correlate with NvAPI GPUs, validate prerequisites
 - **OC Scanner Integration** - Execute OC Scanner workflows, parse results, compare before/after curves
-- **Profile Management** - Load, compare, diff, and validate hardware profiles
+- **Profile Comparison** - Diff two hardware profiles, identify changes
 - **Safety Validation** - Check voltage, temperature, and power limits against architecture-specific thresholds
-- **Session Tracking** - Maintain state across multiple operations with checkpoint/restore support
+- **Session Management** - Track overclocking state across operations
 
 ### What This Package Does NOT Do
 
@@ -43,6 +46,7 @@ It provides high-level operations that combine these lower-level capabilities:
 - **GPU architecture detection** - Uses data from `msiaf/catalog`
 - **User interaction** - Pure library, no CLI or prompts
 - **Automated tuning decisions** - Provides tools, not policy (reserved for agents)
+- **Profile application** - User applies profiles via MSI Afterburner UI (this package only prepares them)
 
 ---
 
@@ -51,13 +55,14 @@ It provides high-level operations that combine these lower-level capabilities:
 ### Package Structure
 
 ```
-overclock/
+overclocking/
 ├── README.md              # This file - package documentation and guidelines
+├── discovery.go           # GPU discovery (scan profiles, correlate with NvAPI) ✅ IMPLEMENTED
 ├── session.go             # Session management (baseline, current, history)
 ├── scanner.go             # OC Scanner integration and analysis
 ├── profile.go             # Profile comparison and diffing
 ├── safety.go              # Safety limits and validation
-└── overclock_test.go      # Unit and integration tests
+└── discovery_test.go      # Unit tests for discovery ✅ IMPLEMENTED
 ```
 
 ### Component Overview
@@ -92,6 +97,77 @@ overclock/
 ---
 
 ## 🔑 CORE RESPONSIBILITIES
+
+### GPU Discovery ✅ IMPLEMENTED
+
+Discovers NVIDIA GPUs and validates MSI Afterburner prerequisites:
+
+- Scans MSI Afterburner Profiles directory for hardware profile .cfg files
+- Queries NvAPI for all detected NVIDIA GPUs
+- Correlates profiles with GPUs by matching marketing names
+- Returns structured GPU information with PCI identifiers
+- Validates that every profile has a matching physical GPU
+- Reports errors for missing profiles (required for overclocking)
+
+**Key Types:**
+
+```go
+type GPUInfo struct {
+    Index           int    `json:"index"`            // NvAPI GPU index (0, 1, 2, ...)
+    Name            string `json:"name"`             // Marketing name from NvAPI
+    VendorID        string `json:"vendor_id"`        // PCI vendor ID
+    DeviceID        string `json:"device_id"`        // PCI device ID
+    SubsystemID     string `json:"subsystem_id"`     // PCI subsystem ID
+    BusNumber       int    `json:"bus_number"`       // PCI bus number
+    DeviceNumber    int    `json:"device_number"`    // PCI device number
+    FunctionNumber  int    `json:"function_number"`  // PCI function number
+    ProfilePath     string `json:"profile_path"`     // Path to .cfg file
+    Manufacturer    string `json:"manufacturer"`     // Card manufacturer
+    FullDescription string `json:"full_description"` // Complete description
+}
+
+type DiscoveryResult struct {
+    ProfilesDir      string    `json:"profiles_dir"`
+    GlobalConfigPath string    `json:"global_config_path"`
+    GPUs             []GPUInfo `json:"gpus"`
+    Errors           []string  `json:"errors,omitempty"`
+}
+```
+
+**Key Functions:**
+
+```go
+// ScanGPUs discovers NVIDIA GPUs by scanning MSI Afterburner profiles
+func ScanGPUs(profilesDir string) (*DiscoveryResult, error)
+```
+
+**Example Usage:**
+
+```go
+import "github.com/hekmon/aiup/overclocking"
+
+result, err := overclocking.ScanGPUs(`C:\Program Files (x86)\MSI Afterburner\Profiles`)
+if err != nil {
+    panic(err)
+}
+
+for _, gpu := range result.GPUs {
+    fmt.Printf("GPU %d: %s (%s)\n", gpu.Index, gpu.Name, gpu.Manufacturer)
+}
+```
+
+**CLI Example:**
+
+```bash
+# Use default path
+overclocking.exe
+
+# Specify custom path
+overclocking.exe -profiles "D:\Custom\Profiles"
+
+# Show help
+overclocking.exe -h
+```
 
 ### Session Management
 
@@ -141,6 +217,62 @@ Enforces architecture-specific safety limits:
 
 ## 📝 DEVELOPER GUIDELINES
 
+### Package Rules (CRITICAL)
+
+These rules apply to all code in the overclocking package:
+
+#### 1. JSON Serialization Required
+
+**All exported structs must have JSON tags** for API/MCP compatibility:
+
+```go
+type GPUInfo struct {
+    Index     int    `json:"index"`
+    Name      string `json:"name"`
+    VendorID  string `json:"vendor_id"`
+    // ...
+}
+```
+
+**Guidelines:**
+- Use `snake_case` for JSON field names (Go convention for APIs)
+- Use `omitempty` for optional/sparse fields (e.g., `Errors []string`)
+- All fields should be exported (capitalized) for JSON marshaling
+- Use standard Go types (int, float64, string, bool, time.Time, slices, maps)
+
+#### 2. Hide Low-Level Complexity
+
+**Users should never import `nvvf` or `msiaf` directly.**
+
+The overclocking package is a **high-level orchestration layer** that:
+- Imports `nvvf` and `msiaf` internally
+- Converts all low-level types to overclocking package types
+- Returns only JSON-serializable overclocking types
+
+**Example:**
+
+```go
+// ✅ Good: User only imports overclocking
+import "github.com/hekmon/aiup/overclocking"
+
+result, err := overclocking.ScanGPUs("/path/to/Profiles")
+fmt.Println(result.GPUs[0].Name) // No nvvf/msiaf types exposed
+
+// ❌ Bad: User shouldn't need to know about nvvf/msiaf
+import (
+    "github.com/hekmon/aiup/overclocking"
+    "github.com/hekmon/aiup/nvvf"  // Don't do this!
+)
+```
+
+#### 3. Profiles Are Mandatory
+
+Overclocking requires a profile to apply offsets. If no profile exists:
+
+- Return an error (do not proceed silently)
+- Tell the user to create a profile in MSI Afterburner first
+- Do not attempt to create profiles automatically
+
 ### JSON-Marshallable Results (CRITICAL)
 
 **All exported functions must return JSON-marshallable data structures.**
@@ -150,7 +282,8 @@ This requirement ensures MCP Server compatibility - any function result should b
 **Do:**
 - Return structs with exported fields
 - Use standard Go types (int, float64, string, bool, slices, maps)
-- Use `time.Time` for timestamps (JSON-serializable)
+- Use `snake_case` for JSON field names (e.g., `vendor_id`, `profile_path`)
+- Use `omitempty` for optional/sparse fields (e.g., `Errors []string`)
 - Use pointers for optional fields (nil = not present)
 - Implement `MarshalJSON()` only when necessary for custom formatting
 
@@ -158,7 +291,7 @@ This requirement ensures MCP Server compatibility - any function result should b
 - Return unexported types from public functions
 - Include channels or functions in result structs
 - Return raw errors without structured error types
-- Use types that don't serialize cleanly to JSON
+- Use types that don't serialize cleanly to JSON (e.g., `time.Time` unless needed)
 
 ### Error Handling
 
@@ -179,6 +312,7 @@ This allows MCP clients and terminal agents to programmatically inspect errors a
 
 | Type | Convention | Example |
 |------|------------|---------|
+| Discovery types | `Discovery<Thing>` | `DiscoveryResult`, `GPUInfo` |
 | Session types | `<Thing>Session` | `OCScannerSession` |
 | Result types | `<Thing>Result` | `ScanResult` |
 | Diff types | `<Thing>Diff` | `ProfileDiff` |
@@ -298,21 +432,38 @@ The MCP server exposes this package's capabilities as tools:
 ### Running Tests
 
 ```bash
-go test ./overclock/...
+go test ./overclocking/...
 ```
 
 ### Coverage Goals
 
-| Component | Target |
-|-----------|--------|
-| Safety validation | 100% (critical path) |
-| Session management | 90% |
-| OC Scanner integration | 80% (requires mocks) |
-| Profile comparison | 90% |
+| Component | Target | Status |
+|-----------|--------|--------|
+| GPU Discovery | 100% | ✅ Implemented |
+| Safety validation | 100% (critical path) | Planned |
+| Session management | 90% | Planned |
+| OC Scanner integration | 80% (requires mocks) | Planned |
+| Profile comparison | 90% | Planned |
 
 ### Mocking Strategy
 
 Use interfaces to mock external dependencies (`msiaf`, `nvvf`) for unit testing.
+
+### Test Results
+
+```
+=== RUN   TestMatchGPUName
+=== RUN   TestMatchGPUName/exact_match_with_manufacturer
+=== RUN   TestMatchGPUName/exact_match_no_manufacturer
+# ... 9 test cases, all passing
+--- PASS: TestMatchGPUName (0.00s)
+
+=== RUN   TestGPUInfoJSONSerialization
+--- PASS: TestGPUInfoJSONSerialization (0.00s)
+
+=== RUN   TestDiscoveryResultJSONSerialization
+--- PASS: TestDiscoveryResultJSONSerialization (0.00s)
+```
 
 ---
 
@@ -320,7 +471,8 @@ Use interfaces to mock external dependencies (`msiaf`, `nvvf`) for unit testing.
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 0.1.0 | TBD | Initial package structure and API definition |
+| 0.1.0 | 2024 | Initial package structure and API definition |
+| 0.1.1 | 2024 | GPU Discovery implemented and tested (`ScanGPUs`, `GPUInfo`, `DiscoveryResult`) |
 
 ---
 
