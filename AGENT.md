@@ -126,9 +126,28 @@ At the end of successful sessions (everything builds, tests pass, stable conclus
 ├── LocalProfiles/              # Test data (gitignored)
 │   └── *.cfg                   # Hardware profile files
 │
-└── tmp/                        # Temporary experiment tools (clean up after use)
+└── tmp/                        # Temporary experiment tools (gitignored)
     └── <experiment_name>/      # Remove after implementation complete
 ```
+
+### tmp/ Directory Rules
+
+**ALL temporary/test programs MUST be placed under `tmp/`.**
+
+| Rule | Requirement |
+|------|-------------|
+| **Location** | All temporary code goes in `tmp/<experiment_name>/` |
+| **Git status** | `tmp/` is in `.gitignore` - never commit temporary code |
+| **Cleanup** | Remove `tmp/<experiment_name>/` after implementation complete |
+| **Purpose** | Quick experiments, validation tests, one-off tools |
+| **Structure** | Create subdirectory per experiment: `tmp/validate_set/`, `tmp/test_parser/` |
+| **Duration** | Temporary by definition - clean up at end of session/task |
+
+**Why tmp/?**
+- Keeps experiments isolated from production code
+- Prevents accidental commits of test code
+- Easy to clean up: `rm -rf tmp/`
+- Follows Go project conventions
 
 ### Package Responsibilities
 
@@ -314,6 +333,8 @@ When investigating unknown formats:
 4. **Document findings** → In AGENT.md before implementing final parser
 5. **Follow reference pattern** → Use `fancurve.go` or `vfcurve.go` as template
 6. **Clean up** → `rm -rf tmp/<experiment_name>/` after implementation
+
+**See also:** [tmp/ Directory Rules](#tmp-directory-rules) in Project Map
 
 ---
 
@@ -806,6 +827,12 @@ func main() {
 - [ ] Read this AGENT.md file
 - [ ] Understand the task requirements
 - [ ] Present plan to user before implementing
+
+**During Development:**
+- [ ] Temporary code goes in `tmp/<experiment_name>/` (not in root or packages)
+
+**End of Successful Session:**
+- [ ] Clean up `tmp/` directory (remove all experiment folders)
 
 **During Development:**
 - [ ] Follow file organization principle (new scopes = new files)
