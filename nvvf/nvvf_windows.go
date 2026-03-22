@@ -165,3 +165,159 @@ func ReadNvAPIVFLegacy(gpuIndex int) ([]VFPoint, error) {
 
 	return parseLegacyVFPoints(status, ctrl), nil
 }
+
+// SetNvAPIVFPointBlackwell sets a frequency offset for a single V/F curve point on RTX 50xx GPUs.
+//
+// Parameters:
+//   - gpuIndex: GPU index (0-63)
+//   - pointIndex: V/F curve point index (0-127)
+//   - offsetKHz: frequency offset in kHz (signed, e.g., +50000 for +50 MHz)
+//
+// The mask is set to a single bit corresponding to the point being modified.
+// Setting multiple bits in one call will cause the function to fail.
+//
+// Returns an error if NvAPI fails or if the GPU is not Blackwell.
+func SetNvAPIVFPointBlackwell(gpuIndex, pointIndex, offsetKHz int) error {
+	if pointIndex < 0 || pointIndex > 127 {
+		return fmt.Errorf("pointIndex %d out of range (0-127)", pointIndex)
+	}
+	if gpuIndex < 0 || gpuIndex > 63 {
+		return fmt.Errorf("gpuIndex %d out of range (0-63)", gpuIndex)
+	}
+
+	dll, err := syscall.LoadDLL("nvapi64.dll")
+	if err != nil {
+		return fmt.Errorf("nvapi64.dll not found (NVIDIA driver required): %w", err)
+	}
+	defer dll.Release()
+
+	qi, err := dll.FindProc("nvapi_QueryInterface")
+	if err != nil {
+		return fmt.Errorf("nvapi_QueryInterface not exported: %w", err)
+	}
+
+	resolve := func(id uint32) uintptr {
+		addr, _, _ := qi.Call(uintptr(id))
+		return addr
+	}
+	call := func(fn uintptr, args ...uintptr) uint32 {
+		r, _, _ := syscall.SyscallN(fn, args...)
+		return uint32(r)
+	}
+
+	// Initialize NvAPI
+	if s := call(resolve(fnInitialize)); s != 0 {
+		return fmt.Errorf("NvAPI_Initialize: 0x%08X", s)
+	}
+
+	// Enumerate GPUs
+	var handles [64]uintptr
+	var count uint32
+	if s := call(resolve(fnEnumGPUs),
+		uintptr(unsafe.Pointer(&handles)),
+		uintptr(unsafe.Pointer(&count)),
+	); s != 0 {
+		return fmt.Errorf("NvAPI_EnumPhysicalGPUs: 0x%08X", s)
+	}
+	if gpuIndex >= int(count) {
+		return fmt.Errorf("GPU index %d out of range (found %d GPUs)", gpuIndex, count)
+	}
+	gpu := handles[gpuIndex]
+
+	// Blackwell control struct (9248 bytes)
+	var ctrl nvVfPointsCtrlBlackwell
+
+	// Initialize control struct
+	ctrl.Version = 0x00012420 // (1 << 16) | 0x2420
+
+	// Set single-bit mask for the target point
+	ctrl.Mask[pointIndex/32] = 1 << (pointIndex % 32)
+
+	// Set frequency offset for the target point (in kHz)
+	ctrl.Entries[pointIndex].FreqDeltaKHz = int32(offsetKHz)
+
+	// SetControl
+	if s := call(resolve(fnVfSetControl), gpu, uintptr(unsafe.Pointer(&ctrl))); s != 0 {
+		return fmt.Errorf("ClockClientClkVfPointsSetControl: 0x%08X (Blackwell)", s)
+	}
+
+	return nil
+}
+
+// SetNvAPIVFLegacy sets a frequency offset for a single V/F curve point on RTX 30/40xx GPUs.
+//
+// Parameters:
+//   - gpuIndex: GPU index (0-63)
+//   - pointIndex: V/F curve point index (0-127)
+//   - offsetKHz: frequency offset in kHz (signed, e.g., +50000 for +50 MHz)
+//
+// The mask is set to a single bit corresponding to the point being modified.
+// Setting multiple bits in one call will cause the function to fail.
+//
+// Returns an error if NvAPI fails or if the GPU is not legacy (Pascal/Ampere/Ada).
+func SetNvAPIVFLegacy(gpuIndex, pointIndex, offsetKHz int) error {
+	if pointIndex < 0 || pointIndex > 127 {
+		return fmt.Errorf("pointIndex %d out of range (0-127)", pointIndex)
+	}
+	if gpuIndex < 0 || gpuIndex > 63 {
+		return fmt.Errorf("gpuIndex %d out of range (0-63)", gpuIndex)
+	}
+
+	dll, err := syscall.LoadDLL("nvapi64.dll")
+	if err != nil {
+		return fmt.Errorf("nvapi64.dll not found (NVIDIA driver required): %w", err)
+	}
+	defer dll.Release()
+
+	qi, err := dll.FindProc("nvapi_QueryInterface")
+	if err != nil {
+		return fmt.Errorf("nvapi_QueryInterface not exported: %w", err)
+	}
+
+	resolve := func(id uint32) uintptr {
+		addr, _, _ := qi.Call(uintptr(id))
+		return addr
+	}
+	call := func(fn uintptr, args ...uintptr) uint32 {
+		r, _, _ := syscall.SyscallN(fn, args...)
+		return uint32(r)
+	}
+
+	// Initialize NvAPI
+	if s := call(resolve(fnInitialize)); s != 0 {
+		return fmt.Errorf("NvAPI_Initialize: 0x%08X", s)
+	}
+
+	// Enumerate GPUs
+	var handles [64]uintptr
+	var count uint32
+	if s := call(resolve(fnEnumGPUs),
+		uintptr(unsafe.Pointer(&handles)),
+		uintptr(unsafe.Pointer(&count)),
+	); s != 0 {
+		return fmt.Errorf("NvAPI_EnumPhysicalGPUs: 0x%08X", s)
+	}
+	if gpuIndex >= int(count) {
+		return fmt.Errorf("GPU index %d out of range (found %d GPUs)", gpuIndex, count)
+	}
+	gpu := handles[gpuIndex]
+
+	// Legacy control struct (1076 bytes)
+	var ctrl nvVfPointsCtrlLegacy
+
+	// Initialize control struct
+	ctrl.Version = 0x00010434 // (1 << 16) | 0x0434
+
+	// Set single-bit mask for the target point
+	ctrl.Mask[pointIndex/32] = 1 << (pointIndex % 32)
+
+	// Set frequency offset for the target point (in kHz)
+	ctrl.Entries[pointIndex].FreqDeltaKHz = int32(offsetKHz)
+
+	// SetControl
+	if s := call(resolve(fnVfSetControl), gpu, uintptr(unsafe.Pointer(&ctrl))); s != 0 {
+		return fmt.Errorf("ClockClientClkVfPointsSetControl: 0x%08X (legacy)", s)
+	}
+
+	return nil
+}

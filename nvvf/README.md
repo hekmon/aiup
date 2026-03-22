@@ -93,52 +93,11 @@ type VFPoint struct {
 - **NVIDIA display driver** installed (provides `libnvidia-api.so.1`)
 - **NVIDIA GPU** present in the system
 
-**WSL Users:** Run the Windows build (`nvvf.exe`) directly from WSL. Example:
-```bash
-# From WSL terminal
-GOOS=windows go build -o nvvf.exe ./cmd/nvvf    # Build Windows binary
-./nvvf.exe -list                    # Works via WSL interop
-```
+**WSL Users:** The Windows build (`nvvf.exe`) can be run from WSL via interop. The Linux build requires native Linux with `libnvidia-api.so.1`.
 
 ## Command-Line Tool
 
-The `cmd/nvvf` tool provides quick access to V-F curve data:
-
-```bash
-# Build
-cd aiup
-go build -o nvvf.exe ./cmd/nvvf    # Windows
-go build -o nvvf ./cmd/nvvf        # Linux
-
-# Usage
-nvvf              # Read all GPUs
-nvvf -gpu 0       # Read GPU 0 only
-nvvf -v           # Verbose output
-nvvf -json        # JSON output
-nvvf -list        # List available GPUs
-nvvf -h           # Show help
-```
-
-### Example Output
-
-```
-=== NVIDIA V-F Curve (from NvAPI) ===
-
-GPU 0:
-  Voltage (mV) | Base (MHz) | Offset (MHz) | Effective (MHz)
-  -------------|------------|--------------|----------------
-           450 |        225 |            0 |            225
-           770 |        247 |            0 |            247
-           890 |       1875 |            0 |           1875
-  ...
-           1240 |       2872 |            0 |           2872
-
-=== Summary ===
-
-Hardware Base Frequency Range: 225 - 2872 MHz
-Voltage Range: 450 - 1240 mV
-Active V/F Points: 128 / 128
-```
+For quick command-line access to V-F curve data, see the [`cmd/nvvf`](../cmd/nvvf/) tool.
 
 ## Technical Details
 

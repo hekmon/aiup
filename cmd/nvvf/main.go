@@ -1,19 +1,28 @@
-// nvvf - NVIDIA V-F Curve Tool
+// nvvf - NVIDIA V-F Curve Command-Line Tool
+//
+// This is the CLI tool for reading NVIDIA GPU voltage-frequency (V-F) curves.
+// For the Go package API, see github.com/hekmon/aiup/nvvf.
+//
+// # PLATFORM SUPPORT
 //
 // Supports both Windows (nvapi64.dll) and Linux (libnvidia-api.so.1).
+// Both platforms use identical NvAPI function IDs and struct layouts.
 //
-// Unified command-line tool for testing all nvvf package functionality.
-// Reads voltage-frequency curves from NVIDIA GPUs via NvAPI.
+// WSL Users: Use the Windows build (nvvf.exe) directly from WSL. The Linux
+// build cannot be used on WSL because libnvidia-api.so.1 is not available.
 //
-// Usage:
+// USAGE
 //
 //	nvvf                          # Read all GPUs, human-readable output
 //	nvvf -gpu 0                   # Read specific GPU
 //	nvvf -json                    # Output as JSON
 //	nvvf -v                       # Verbose (show diagnostic info)
 //	nvvf -list                    # List available GPUs
+//	nvvf -diag                    # Detailed diagnostics (base + offsets)
+//	nvvf -debug                   # Raw struct debug info
+//	nvvf -h                       # Show help
 //
-// Examples:
+// EXAMPLES
 //
 //	# Quick check of GPU 0
 //	nvvf -gpu 0
@@ -24,7 +33,46 @@
 //	# Export for analysis
 //	nvvf -json > vfcurve.json
 //
+//	# List all available GPUs
+//	nvvf -list
+//
+// FLAGS
+//
+//	-gpu int
+//	    GPU index to query (default -1 = all GPUs)
+//	-json
+//	    Output as JSON instead of human-readable format
+//	-v    Verbose output (show diagnostic info)
+//	-list
+//	    List available NVIDIA GPUs and exit
+//	-diag
+//	    Show detailed diagnostics (base curve + offsets separately)
+//	-debug
+//	    Show raw NvAPI struct bytes (for troubleshooting)
+//	-h    Show help message
+//
+// # OUTPUT
+//
+// Human-readable table or JSON with voltage/frequency data from NvAPI.
+//
+//	Voltage (mV)   : Voltage step
+//	Base (MHz)     : Hardware base frequency (from driver)
+//	Offset (MHz)   : User frequency offset (via NvAPI SetControl)
+//	Effective (MHz): Base + Offset (actual applied frequency)
+//
+// # ATTRIBUTION
+//
+// The Blackwell (RTX 50xx) NvAPI V-F curve struct sizes and function
+// definitions were discovered through community reverse-engineering:
+//
+//   - LACT Project: https://github.com/ilya-zlobintsev/LACT
+//   - Issue #936: https://github.com/ilya-zlobintsev/LACT/issues/936
+//   - Researcher: Loong0x00 (GitHub)
+//
+// # RELATED
+//
 // For MSI Afterburner .cfg file parsing, see the msiaf package.
+// For Go package API documentation, see https://github.com/hekmon/aiup/nvvf
 package main
 
 import (
@@ -156,7 +204,8 @@ Credits & Attribution:
   open-source GPU tools community for sharing knowledge.
 
 For MSI Afterburner .cfg parsing, see the msiaf package.
-For more information, see: https://github.com/hekmon/aiup/nvvf`)
+For Go package API documentation, see: https://github.com/hekmon/aiup/nvvf
+For package README with technical details, see: nvvf/README.md`)
 }
 
 // listAvailableGPUs enumerates and lists all NVIDIA GPUs
