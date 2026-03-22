@@ -30,7 +30,7 @@ func TestVFCurveParsing(t *testing.T) {
 	}
 
 	// Debug: Print first 10 raw triplets to verify field interpretation
-	// f0=voltage_mV, f1=OCScannerRef_MHz (cached from last scan), f2=offset_MHz
+	// f0=voltage_mV, f1=base_MHz (baseline frequency), f2=offset_MHz
 	t.Log("Raw triplets (first 10 points - mostly inactive):")
 	for i := 0; i < 10 && i < len(curve.RawTriplets); i++ {
 		t.Logf("  Point %d: [f0=%.2f, f1=%.2f, f2=%.2f]",
@@ -43,7 +43,7 @@ func TestVFCurveParsing(t *testing.T) {
 	for i, triplet := range curve.RawTriplets {
 		voltage := triplet[0]
 		if voltage >= 800 && voltage <= 1000 && triplet[1] != 225.0 {
-			t.Logf("  Point %d: voltage=%.0f mV, OCScannerRef=%.0f MHz, Offset=%.0f MHz, Applied≈%.0f MHz",
+			t.Logf("  Point %d: voltage=%.0f mV, base=%.0f MHz, Offset=%.0f MHz, Applied≈%.0f MHz",
 				i, voltage, triplet[1], triplet[2], triplet[1]+triplet[2])
 		}
 	}
@@ -54,8 +54,8 @@ func TestVFCurveParsing(t *testing.T) {
 	for _, sampleV := range sampleVoltages {
 		point := curve.GetPointByVoltage(sampleV)
 		if point != nil {
-			t.Logf("  %.0f mV: OCScannerRef=%.0f MHz, Offset=%+.0f MHz, Active=%v",
-				point.VoltageMV, point.OCScannerRefMHz, point.OffsetMHz, point.IsActive)
+			t.Logf("  %.0f mV: base=%.0f MHz, Offset=%+.0f MHz, Active=%v",
+				point.VoltageMV, point.BaseFreqMHz, point.OffsetMHz, point.IsActive)
 		}
 	}
 
@@ -110,16 +110,16 @@ func TestVFCurveParsing(t *testing.T) {
 	if point == nil {
 		t.Error("GetPointByVoltage(800) returned nil")
 	} else {
-		t.Logf("Point at ~800 mV: offset=%+.0f MHz, OCScannerRef=%.0f MHz, active=%v",
-			point.OffsetMHz, point.OCScannerRefMHz, point.IsActive)
+		t.Logf("Point at ~800 mV: offset=%+.0f MHz, base=%.0f MHz, active=%v",
+			point.OffsetMHz, point.BaseFreqMHz, point.IsActive)
 	}
 
-	// Test GetOCScannerReferenceAt
-	ocRef := curve.GetOCScannerReferenceAt(800)
-	if ocRef == 0 {
-		t.Error("GetOCScannerReferenceAt(800) returned 0")
+	// Test GetBaseFreqAt
+	baseFreq := curve.GetBaseFreqAt(800)
+	if baseFreq == 0 {
+		t.Error("GetBaseFreqAt(800) returned 0")
 	} else {
-		t.Logf("OC Scanner reference at ~800 mV: %.0f MHz", ocRef)
+		t.Logf("Base frequency at ~800 mV: %.0f MHz", baseFreq)
 	}
 
 	// Test GetOffsetAt
@@ -151,34 +151,34 @@ func TestVFCurveInactiveMarker(t *testing.T) {
 
 	// Verify inactive points
 	if points[0].IsActive {
-		t.Error("Point 0 should be inactive (OCScannerRef=225.0)")
+		t.Error("Point 0 should be inactive (BaseFreqMHz=225.0)")
 	}
 	if points[0].OffsetMHz != 0.0 {
 		t.Errorf("Inactive point should have offset 0, got %.0f", points[0].OffsetMHz)
 	}
 
 	if points[2].IsActive {
-		t.Error("Point 2 should be inactive (OCScannerRef=225.0)")
+		t.Error("Point 2 should be inactive (BaseFreqMHz=225.0)")
 	}
 
 	// Verify active points
 	if !points[1].IsActive {
-		t.Error("Point 1 should be active (OCScannerRef=750.0)")
+		t.Error("Point 1 should be active (BaseFreqMHz=750.0)")
 	}
 	if !points[3].IsActive {
-		t.Error("Point 3 should be active (OCScannerRef=850.0)")
+		t.Error("Point 3 should be active (BaseFreqMHz=850.0)")
 	}
 }
 
-// TestVFCurveHelperMethods tests the GetOCScannerReferenceAt and GetOffsetAt helper methods.
-// OC Scanner reference is cached from the user's last scan, offset is applied on top of it.
+// TestVFCurveHelperMethods tests the GetBaseFreqAt and GetOffsetAt helper methods.
+// Base frequency serves as the baseline for offset calculations.
 func TestVFCurveHelperMethods(t *testing.T) {
 	// Create a test curve with known values
-	// Structure: [voltage_mV, oc_ref_MHz (OC Scanner cached), offset_MHz (user delta)]
+	// Structure: [voltage_mV, base_MHz (baseline frequency), offset_MHz (user delta)]
 	triplets := [][3]float32{
-		{500.0, 225.0, 0.0},   // inactive: no OC Scanner data, offset=0 (stock behavior)
-		{600.0, 750.0, 100.0}, // active: OC Scanner ref=750 MHz, applied≈850 MHz
-		{800.0, 850.0, -50.0}, // active: OC Scanner ref=850 MHz, applied≈800 MHz
+		{500.0, 225.0, 0.0},   // inactive: stock behavior, offset=0
+		{600.0, 750.0, 100.0}, // active: base=750 MHz, applied≈850 MHz
+		{800.0, 850.0, -50.0}, // active: base=850 MHz, applied≈800 MHz
 	}
 
 	points := buildVFPointsFromTriplets(triplets)
@@ -188,30 +188,30 @@ func TestVFCurveHelperMethods(t *testing.T) {
 		Points:     points,
 	}
 
-	// Test GetOCScannerReferenceAt
-	t.Run("GetOCScannerReferenceAt", func(t *testing.T) {
+	// Test GetBaseFreqAt
+	t.Run("GetBaseFreqAt", func(t *testing.T) {
 		// Test inactive point
-		ref := curve.GetOCScannerReferenceAt(500)
-		if ref != 225.0 {
-			t.Errorf("GetOCScannerReferenceAt(500) = %.1f, want 225.0", ref)
+		baseFreq := curve.GetBaseFreqAt(500)
+		if baseFreq != 225.0 {
+			t.Errorf("GetBaseFreqAt(500) = %.1f, want 225.0", baseFreq)
 		}
 
 		// Test active point
-		ref = curve.GetOCScannerReferenceAt(600)
-		if ref != 750.0 {
-			t.Errorf("GetOCScannerReferenceAt(600) = %.1f, want 750.0", ref)
+		baseFreq = curve.GetBaseFreqAt(600)
+		if baseFreq != 750.0 {
+			t.Errorf("GetBaseFreqAt(600) = %.1f, want 750.0", baseFreq)
 		}
 
 		// Test another active point
-		ref = curve.GetOCScannerReferenceAt(800)
-		if ref != 850.0 {
-			t.Errorf("GetOCScannerReferenceAt(800) = %.1f, want 850.0", ref)
+		baseFreq = curve.GetBaseFreqAt(800)
+		if baseFreq != 850.0 {
+			t.Errorf("GetBaseFreqAt(800) = %.1f, want 850.0", baseFreq)
 		}
 
 		// Test voltage with no exact match (should return closest)
-		ref = curve.GetOCScannerReferenceAt(510)
-		if ref == 0 {
-			t.Error("GetOCScannerReferenceAt(510) returned 0 for close voltage")
+		baseFreq = curve.GetBaseFreqAt(510)
+		if baseFreq == 0 {
+			t.Error("GetBaseFreqAt(510) returned 0 for close voltage")
 		}
 	})
 
@@ -249,8 +249,8 @@ func TestVFCurveValidation(t *testing.T) {
 			name:    "valid curve",
 			version: 0x00020000,
 			points: []VFPoint{
-				{Index: 0, VoltageMV: 500, OffsetMHz: 0, OCScannerRefMHz: 225.0, IsActive: false},
-				{Index: 1, VoltageMV: 600, OffsetMHz: 100, OCScannerRefMHz: 750.0, IsActive: true},
+				{Index: 0, VoltageMV: 500, OffsetMHz: 0, BaseFreqMHz: 225.0, IsActive: false},
+				{Index: 1, VoltageMV: 600, OffsetMHz: 100, BaseFreqMHz: 750.0, IsActive: true},
 			},
 			shouldError: false,
 		},
@@ -258,7 +258,7 @@ func TestVFCurveValidation(t *testing.T) {
 			name:    "voltage out of range",
 			version: 0x00020000,
 			points: []VFPoint{
-				{Index: 0, VoltageMV: 300, OffsetMHz: 0, OCScannerRefMHz: 225.0, IsActive: false},
+				{Index: 0, VoltageMV: 300, OffsetMHz: 0, BaseFreqMHz: 225.0, IsActive: false},
 			},
 			shouldError: true,
 		},
@@ -266,7 +266,7 @@ func TestVFCurveValidation(t *testing.T) {
 			name:    "active point OC Scanner ref out of range",
 			version: 0x00020000,
 			points: []VFPoint{
-				{Index: 0, VoltageMV: 800, OffsetMHz: 100, OCScannerRefMHz: 500.0, IsActive: true},
+				{Index: 0, VoltageMV: 800, OffsetMHz: 100, BaseFreqMHz: 500.0, IsActive: true},
 			},
 			shouldError: true,
 		},
@@ -299,25 +299,25 @@ func TestVFControlCurveInfo_Marshal(t *testing.T) {
 		PointCount: 3,
 		Points: []VFPoint{
 			{
-				Index:           0,
-				VoltageMV:       800,
-				OCScannerRefMHz: 2500,
-				OffsetMHz:       100,
-				IsActive:        true,
+				Index:       0,
+				VoltageMV:   800,
+				BaseFreqMHz: 2500,
+				OffsetMHz:   100,
+				IsActive:    true,
 			},
 			{
-				Index:           1,
-				VoltageMV:       900,
-				OCScannerRefMHz: 2700,
-				OffsetMHz:       50,
-				IsActive:        true,
+				Index:       1,
+				VoltageMV:   900,
+				BaseFreqMHz: 2700,
+				OffsetMHz:   50,
+				IsActive:    true,
 			},
 			{
-				Index:           2,
-				VoltageMV:       1000,
-				OCScannerRefMHz: 225.0, // Inactive
-				OffsetMHz:       0,
-				IsActive:        false,
+				Index:       2,
+				VoltageMV:   1000,
+				BaseFreqMHz: 225.0, // Inactive
+				OffsetMHz:   0,
+				IsActive:    false,
 			},
 		},
 	}
@@ -353,32 +353,32 @@ func TestVFControlCurveInfo_Marshal_RoundTrip(t *testing.T) {
 		PointCount: 4,
 		Points: []VFPoint{
 			{
-				Index:           0,
-				VoltageMV:       800,
-				OCScannerRefMHz: 2500,
-				OffsetMHz:       100,
-				IsActive:        true,
+				Index:       0,
+				VoltageMV:   800,
+				BaseFreqMHz: 2500,
+				OffsetMHz:   100,
+				IsActive:    true,
 			},
 			{
-				Index:           1,
-				VoltageMV:       850,
-				OCScannerRefMHz: 2600,
-				OffsetMHz:       75,
-				IsActive:        true,
+				Index:       1,
+				VoltageMV:   850,
+				BaseFreqMHz: 2600,
+				OffsetMHz:   75,
+				IsActive:    true,
 			},
 			{
-				Index:           2,
-				VoltageMV:       900,
-				OCScannerRefMHz: 225.0,
-				OffsetMHz:       0,
-				IsActive:        false,
+				Index:       2,
+				VoltageMV:   900,
+				BaseFreqMHz: 225.0,
+				OffsetMHz:   0,
+				IsActive:    false,
 			},
 			{
-				Index:           3,
-				VoltageMV:       950,
-				OCScannerRefMHz: 2750,
-				OffsetMHz:       -50,
-				IsActive:        true,
+				Index:       3,
+				VoltageMV:   950,
+				BaseFreqMHz: 2750,
+				OffsetMHz:   -50,
+				IsActive:    true,
 			},
 		},
 	}
@@ -420,14 +420,14 @@ func TestVFControlCurveInfo_Marshal_RoundTrip(t *testing.T) {
 			t.Errorf("Point %d IsActive mismatch: %v vs %v", i, orig.IsActive, rt.IsActive)
 		}
 
-		// For active points, OCScannerRef should match
-		if orig.IsActive && orig.OCScannerRefMHz != rt.OCScannerRefMHz {
-			t.Errorf("Point %d OCScannerRef mismatch: %.1f vs %.1f", i, orig.OCScannerRefMHz, rt.OCScannerRefMHz)
+		// For active points, BaseFreqMHz should match
+		if orig.IsActive && orig.BaseFreqMHz != rt.BaseFreqMHz {
+			t.Errorf("Point %d BaseFreqMHz mismatch: %.1f vs %.1f", i, orig.BaseFreqMHz, rt.BaseFreqMHz)
 		}
 
-		// For inactive points, OCScannerRef should be 225.0
-		if !orig.IsActive && rt.OCScannerRefMHz != 225.0 {
-			t.Errorf("Point %d inactive marker mismatch: %.1f vs 225.0", i, rt.OCScannerRefMHz)
+		// For inactive points, BaseFreqMHz should be 225.0
+		if !orig.IsActive && rt.BaseFreqMHz != 225.0 {
+			t.Errorf("Point %d inactive marker mismatch: %.1f vs 225.0", i, rt.BaseFreqMHz)
 		}
 	}
 }
@@ -439,7 +439,7 @@ func TestVFControlCurveInfo_Marshal_Errors(t *testing.T) {
 		Version:    0x00010000,
 		PointCount: 1,
 		Points: []VFPoint{
-			{Index: 0, VoltageMV: 800, OCScannerRefMHz: 2500, OffsetMHz: 100, IsActive: true},
+			{Index: 0, VoltageMV: 800, BaseFreqMHz: 2500, OffsetMHz: 100, IsActive: true},
 		},
 	}
 	_, err := badVersion.Marshal()
@@ -477,32 +477,32 @@ func TestVFControlCurveInfo_ApplyFlatOffset(t *testing.T) {
 		PointCount: 4,
 		Points: []VFPoint{
 			{
-				Index:           0,
-				VoltageMV:       800,
-				OCScannerRefMHz: 2500,
-				OffsetMHz:       100,
-				IsActive:        true,
+				Index:       0,
+				VoltageMV:   800,
+				BaseFreqMHz: 2500,
+				OffsetMHz:   100,
+				IsActive:    true,
 			},
 			{
-				Index:           1,
-				VoltageMV:       850,
-				OCScannerRefMHz: 225.0,
-				OffsetMHz:       0,
-				IsActive:        false,
+				Index:       1,
+				VoltageMV:   850,
+				BaseFreqMHz: 225.0,
+				OffsetMHz:   0,
+				IsActive:    false,
 			},
 			{
-				Index:           2,
-				VoltageMV:       900,
-				OCScannerRefMHz: 2700,
-				OffsetMHz:       50,
-				IsActive:        true,
+				Index:       2,
+				VoltageMV:   900,
+				BaseFreqMHz: 2700,
+				OffsetMHz:   50,
+				IsActive:    true,
 			},
 			{
-				Index:           3,
-				VoltageMV:       950,
-				OCScannerRefMHz: 2800,
-				OffsetMHz:       -25,
-				IsActive:        true,
+				Index:       3,
+				VoltageMV:   950,
+				BaseFreqMHz: 2800,
+				OffsetMHz:   -25,
+				IsActive:    true,
 			},
 		},
 	}
@@ -536,18 +536,18 @@ func TestVFControlCurveInfo_ApplyFlatOffset_Negative(t *testing.T) {
 		PointCount: 2,
 		Points: []VFPoint{
 			{
-				Index:           0,
-				VoltageMV:       800,
-				OCScannerRefMHz: 2500,
-				OffsetMHz:       100,
-				IsActive:        true,
+				Index:       0,
+				VoltageMV:   800,
+				BaseFreqMHz: 2500,
+				OffsetMHz:   100,
+				IsActive:    true,
 			},
 			{
-				Index:           1,
-				VoltageMV:       900,
-				OCScannerRefMHz: 2700,
-				OffsetMHz:       50,
-				IsActive:        true,
+				Index:       1,
+				VoltageMV:   900,
+				BaseFreqMHz: 2700,
+				OffsetMHz:   50,
+				IsActive:    true,
 			},
 		},
 	}

@@ -432,18 +432,18 @@ func TestProfileSection_SetVFCurveFromCurve(t *testing.T) {
 		PointCount: 2,
 		Points: []VFPoint{
 			{
-				Index:           0,
-				VoltageMV:       800,
-				OCScannerRefMHz: 2500,
-				OffsetMHz:       100,
-				IsActive:        true,
+				Index:       0,
+				VoltageMV:   800,
+				BaseFreqMHz: 2500,
+				OffsetMHz:   100,
+				IsActive:    true,
 			},
 			{
-				Index:           1,
-				VoltageMV:       900,
-				OCScannerRefMHz: 2700,
-				OffsetMHz:       50,
-				IsActive:        true,
+				Index:       1,
+				VoltageMV:   900,
+				BaseFreqMHz: 2700,
+				OffsetMHz:   50,
+				IsActive:    true,
 			},
 		},
 	}

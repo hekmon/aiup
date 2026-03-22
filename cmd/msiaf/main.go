@@ -217,19 +217,19 @@ func main() {
 
 					// Display sample points in the 800-1000 mV range
 					fmt.Println()
-					fmt.Println("      Sample points (voltage → offset | OC Scanner ref):")
+					fmt.Println("      Sample points (voltage → offset | base freq):")
 					// Show all voltage points from 800-1000 mV at 25 mV intervals
 					sampleVoltages := []float32{800, 825, 850, 875, 900, 925, 950, 975, 1000}
 					for _, voltage := range sampleVoltages {
 						point := curve.GetPointByVoltage(voltage)
 						if point != nil {
 							// Display actual voltage of the point found
-							fmt.Printf("        %4.0f mV → %+.0f MHz | OC Scanner ref: %.0f MHz\n",
-								point.VoltageMV, point.OffsetMHz, point.OCScannerRefMHz)
+							fmt.Printf("        %4.0f mV → %+.0f MHz | base: %.0f MHz\n",
+								point.VoltageMV, point.OffsetMHz, point.BaseFreqMHz)
 						}
 					}
 					fmt.Println("      Note: Actual frequency = hardware boost + offset.")
-					fmt.Println("      Hardware boost is GPU-specific (not stored). OC Scanner ref is a visual reference.")
+					fmt.Println("      Hardware boost is GPU-specific (not stored). Base freq is the reference for offsets.")
 				}
 			}
 
@@ -260,13 +260,13 @@ func main() {
 
 						// Show sample points in the 800-1000 mV range
 						fmt.Println()
-						fmt.Println("      Sample points (voltage → offset | OC Scanner ref):")
+						fmt.Println("      Sample points (voltage → offset | base freq):")
 						sampleVoltages := []float32{800, 825, 850, 875, 900, 925, 950, 975, 1000}
 						for _, voltage := range sampleVoltages {
 							point := curve.GetPointByVoltage(voltage)
 							if point != nil {
-								fmt.Printf("        %4.0f mV → %+.0f MHz | OC Scanner ref: %.0f MHz\n",
-									point.VoltageMV, point.OffsetMHz, point.OCScannerRefMHz)
+								fmt.Printf("        %4.0f mV → %+.0f MHz | base: %.0f MHz\n",
+									point.VoltageMV, point.OffsetMHz, point.BaseFreqMHz)
 							}
 						}
 					}

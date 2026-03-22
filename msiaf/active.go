@@ -56,9 +56,9 @@ func (r *ProfileMatchResult) IsMatch(confidenceThreshold float64) bool {
 //
 // The function computes the effective frequency for each profile point as:
 //
-//	effectiveFreq = OCScannerRefMHz + OffsetMHz (for active points)
+//	effectiveFreq = BaseFreqMHz + OffsetMHz (for active points)
 //
-// Inactive points (OCScannerRefMHz = 225.0) are skipped from comparison.
+// Inactive points (BaseFreqMHz = 225.0) are skipped from comparison.
 //
 // Returns ProfileMatchResult with match statistics, or an error if inputs are invalid.
 func MatchVFCurve(liveFreqs map[float32]float64, profileCurve *VFControlCurveInfo, toleranceMHz float64) (*ProfileMatchResult, error) {
@@ -92,8 +92,8 @@ func MatchVFCurve(liveFreqs map[float32]float64, profileCurve *VFControlCurveInf
 		}
 
 		// Compute expected effective frequency from profile
-		// Applied frequency = OC Scanner reference + user offset
-		expectedFreq := float64(profilePoint.OCScannerRefMHz + profilePoint.OffsetMHz)
+		// Applied frequency = base frequency + user offset
+		expectedFreq := float64(profilePoint.BaseFreqMHz + profilePoint.OffsetMHz)
 
 		// Find closest live frequency reading
 		liveFreq, found := liveFreqs[profilePoint.VoltageMV]

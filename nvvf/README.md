@@ -171,8 +171,8 @@ When you apply an OC Scanner profile or MSI Afterburner hardware profile, the NV
 **From .cfg file (msiaf package):**
 ```
 Voltage:   850 mV
-OC Ref:    1365 MHz (f2 - OC Scanner reference)
-Offset:    +952 MHz (f0 - user offset)
+Base:      1365 MHz (f1 - baseline frequency, possibly from OC Scanner)
+Offset:    +952 MHz (f2 - user offset from base)
 Effective: 2317 MHz (1365 + 952)
 ```
 

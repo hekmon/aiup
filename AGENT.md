@@ -487,7 +487,7 @@ go test ./...     # Skip if no NVIDIA hardware
 
 **You cannot detect OC Scanner offsets from NvAPI alone.** The driver has already applied OC Scanner's math internally, so NvAPI reads back the modified curve as the "base" frequency.
 
-**To analyze OC Scanner configurations**, parse the hardware profile `.cfg` files using the `msiaf` package, which stores both `OCScannerRefMHz` and `OffsetMHz` separately.
+**To analyze OC Scanner configurations**, parse the hardware profile `.cfg` files using the `msiaf` package, which stores both `BaseFreqMHz` (baseline frequency, possibly from OC Scanner) and `OffsetMHz` separately.
 
 ---
 
@@ -537,21 +537,21 @@ The voltage-frequency curve (`VFCurve`) uses a binary format stored as a hex blo
 | **Header** | 12 bytes | `[version:uint32][count:uint32][reserved:float32=0.0]` |
 | **Per point** | 12 bytes | `[voltage:float32][oc_ref:float32][offset:float32]` |
 | **Inactive marker** | - | `oc_ref = 225.0` (stock behavior) |
-| **Applied frequency** | - | `OCScannerRef(v) + offset` (computed from blob data) |
+| **Applied frequency** | - | `BaseFreq(v) + offset` (computed from blob data) |
 
 ### Key Design Principle
 
 The `.cfg` blob is **self-contained** and provides all data needed to compute applied frequencies. The formula is:
 
 ```
-AppliedFreq(v) = OCScannerRefMHz(v) + OffsetMHz
+AppliedFreq(v) = BaseFreqMHz(v) + OffsetMHz
 ```
 
 Where:
-- `OCScannerRefMHz` = Cached OC Scanner reference from user's last benchmark run
-- `OffsetMHz` = User's frequency offset relative to that reference
+- `BaseFreqMHz` = Baseline frequency (f1 field, may originate from OC Scanner or manual editing)
+- `OffsetMHz` = User's frequency offset relative to the baseline
 
-The `vfcurve.go` implementation exposes all three values (voltage, OCScannerRef, offset) directly on `VFPoint`. Computing applied frequencies is straightforward: `point.OCScannerRefMHz + point.OffsetMHz`.
+The `vfcurve.go` implementation exposes all three values (voltage, base, offset) directly on `VFPoint`. Computing applied frequencies is straightforward: `point.BaseFreqMHz + point.OffsetMHz`.
 
 **Important distinction: Configured vs. Actual**
 
@@ -583,10 +583,10 @@ curve.ApplyFlatOffset(-50)  // -50 MHz undervolt
 
 | Capability | `msiaf` (cfg parsing) | `nvvf` (NvAPI runtime) |
 |------------|----------------------|------------------------|
-| Read user's OC Scanner reference | ✅ Yes (from blob) | ❌ No (driver already applied it) |
+| Read baseline frequency (f1) | ✅ Yes (from blob) | ❌ No (already combined into BaseFreq) |
 | Read user's frequency offset | ✅ Yes (from blob) | ⚠️ Only NvAPI SetControl offsets |
-| Compute applied frequency | ✅ `OCScannerRef + Offset` | ⚠️ `EffectiveMHz` only (no breakdown) |
-| Detect OC Scanner usage | ✅ Yes | ❌ No |
+| Compute applied frequency | ✅ `BaseFreq + Offset` | ⚠️ `EffectiveMHz` only (no breakdown) |
+| Detect OC Scanner usage | ⚠️ Possible (check f1 pattern) | ❌ No |
 | Show **configured** values | ✅ Yes | N/A |
 | Show **actual runtime** values | ❌ No | ✅ Yes |
 
@@ -671,8 +671,8 @@ if isMatch {
 
 | Aspect | Detail |
 |--------|--------|
-| **Comparison** | `liveFreq` vs `OCScannerRefMHz + OffsetMHz` |
-| **Active points only** | Inactive points (OCScannerRef=225.0) are skipped |
+| **Comparison** | `liveFreq` vs `BaseFreqMHz + OffsetMHz` |
+| **Active points only** | Inactive points (BaseFreqMHz=225.0) are skipped |
 | **Tolerance** | Accounts for floating-point precision (typical: 5-10 MHz) |
 | **Confidence** | Ratio of matched points to total comparable points |
 | **Best match** | Highest confidence wins (first slot breaks ties) |
