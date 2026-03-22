@@ -2,8 +2,10 @@
 package msiaf
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -396,4 +398,258 @@ func TestProfileSlot_Initialization(t *testing.T) {
 			t.Errorf("Profile[%d] should be empty (not in file)", i+1)
 		}
 	}
+}
+
+// TestProfileSection_SetVFCurve tests setting V-F curve from hex string.
+func TestProfileSection_SetVFCurve(t *testing.T) {
+	ps := &ProfileSection{}
+
+	// Set V-F curve from hex string (no 0x prefix or h suffix)
+	hexData := "0000020001000000000000000000E1430000614300006400"
+	ps.SetVFCurve(hexData)
+
+	if ps.VFCurve == nil {
+		t.Fatal("VFCurve should not be nil")
+	}
+	if len(ps.VFCurve) == 0 {
+		t.Error("VFCurve should not be empty")
+	}
+
+	// Verify length: hexData is 24 chars = 12 bytes
+	expectedLen := len(hexData) / 2
+	if len(ps.VFCurve) != expectedLen {
+		t.Errorf("Expected VFCurve length %d, got %d", expectedLen, len(ps.VFCurve))
+	}
+}
+
+// TestProfileSection_SetVFCurveFromCurve tests setting V-F curve from VFControlCurveInfo.
+func TestProfileSection_SetVFCurveFromCurve(t *testing.T) {
+	ps := &ProfileSection{}
+
+	// Create a simple curve
+	curve := &VFControlCurveInfo{
+		Version:    VFControlCurveVersion2,
+		PointCount: 2,
+		Points: []VFPoint{
+			{
+				Index:           0,
+				VoltageMV:       800,
+				OCScannerRefMHz: 2500,
+				OffsetMHz:       100,
+				IsActive:        true,
+			},
+			{
+				Index:           1,
+				VoltageMV:       900,
+				OCScannerRefMHz: 2700,
+				OffsetMHz:       50,
+				IsActive:        true,
+			},
+		},
+	}
+
+	// Set curve from struct
+	err := ps.SetVFCurveFromCurve(curve)
+	if err != nil {
+		t.Fatalf("SetVFCurveFromCurve failed: %v", err)
+	}
+
+	if ps.VFCurve == nil {
+		t.Fatal("VFCurve should not be nil")
+	}
+	if len(ps.VFCurve) == 0 {
+		t.Error("VFCurve should not be empty")
+	}
+
+	// Verify we can parse it back
+	hexData := fmt.Sprintf("%x", ps.VFCurve)
+	parsedCurve, err := UnmarshalVFControlCurve(hexData)
+	if err != nil {
+		t.Fatalf("Failed to parse back: %v", err)
+	}
+
+	if len(parsedCurve.Points) != 2 {
+		t.Errorf("Expected 2 points, got %d", len(parsedCurve.Points))
+	}
+}
+
+// TestHardwareProfile_Serialize tests the serialize method.
+func TestHardwareProfile_Serialize(t *testing.T) {
+	// Create a minimal profile
+	profile := &HardwareProfile{
+		Startup: ProfileSection{
+			Format:     intPtr(2),
+			PowerLimit: intPtr(100),
+		},
+		Profiles: [5]ProfileSlot{
+			{
+				SlotNumber: 1,
+				IsEmpty:    false,
+				ProfileSection: ProfileSection{
+					Format:     intPtr(2),
+					PowerLimit: intPtr(110),
+				},
+			},
+			{SlotNumber: 2, IsEmpty: true},
+			{SlotNumber: 3, IsEmpty: true},
+			{SlotNumber: 4, IsEmpty: true},
+			{SlotNumber: 5, IsEmpty: true},
+		},
+	}
+
+	// Serialize
+	content, err := profile.Serialize()
+	if err != nil {
+		t.Fatalf("serialize failed: %v", err)
+	}
+
+	// Verify content has expected sections
+	if !strings.Contains(content, "[Startup]") {
+		t.Error("Serialized content missing [Startup] section")
+	}
+	if !strings.Contains(content, "[Profile1]") {
+		t.Error("Serialized content missing [Profile1] section")
+	}
+	if !strings.Contains(content, "Format=2") {
+		t.Error("Serialized content missing Format=2")
+	}
+	if !strings.Contains(content, "PowerLimit=100") {
+		t.Error("Serialized content missing PowerLimit=100")
+	}
+
+	// Profile2-5 should not appear (empty)
+	if strings.Contains(content, "[Profile2]") {
+		t.Error("Serialized content should not have [Profile2] (empty)")
+	}
+}
+
+// TestHardwareProfile_Serialize_WithVFCurve tests serialization with V-F curve.
+func TestHardwareProfile_Serialize_WithVFCurve(t *testing.T) {
+	profile := &HardwareProfile{
+		Startup: ProfileSection{
+			Format: intPtr(2),
+		},
+		Profiles: [5]ProfileSlot{
+			{SlotNumber: 1, IsEmpty: true},
+			{SlotNumber: 2, IsEmpty: true},
+			{SlotNumber: 3, IsEmpty: true},
+			{SlotNumber: 4, IsEmpty: true},
+			{SlotNumber: 5, IsEmpty: true},
+		},
+	}
+
+	// Add V-F curve
+	hexCurve := "000002000100000000000000"
+	profile.Startup.VFCurve = parseHexBlob(hexCurve)
+
+	content, err := profile.Serialize()
+	if err != nil {
+		t.Fatalf("serialize failed: %v", err)
+	}
+
+	// Verify VFCurve is in output with 'h' suffix
+	if !strings.Contains(content, "VFCurve=") {
+		t.Error("Serialized content missing VFCurve field")
+	}
+	if !strings.Contains(content, "000002000100000000000000h") {
+		t.Error("VFCurve should have 'h' suffix")
+	}
+}
+
+// TestHardwareProfile_SaveAs tests saving profile to a new file.
+func TestHardwareProfile_SaveAs(t *testing.T) {
+	// Create a test profile
+	profile := &HardwareProfile{
+		filePath: "test_profile.cfg",
+		Startup: ProfileSection{
+			Format:     intPtr(2),
+			PowerLimit: intPtr(100),
+		},
+		Profiles: [5]ProfileSlot{
+			{SlotNumber: 1, IsEmpty: true},
+			{SlotNumber: 2, IsEmpty: true},
+			{SlotNumber: 3, IsEmpty: true},
+			{SlotNumber: 4, IsEmpty: true},
+			{SlotNumber: 5, IsEmpty: true},
+		},
+	}
+
+	// Save to temp file
+	tmpFile := filepath.Join(t.TempDir(), "test_save.cfg")
+	err := profile.SaveAs(tmpFile)
+	if err != nil {
+		t.Fatalf("SaveAs failed: %v", err)
+	}
+
+	// Verify file exists
+	if _, err := os.Stat(tmpFile); os.IsNotExist(err) {
+		t.Error("Saved file does not exist")
+	}
+
+	// Verify we can read it back
+	content, err := os.ReadFile(tmpFile)
+	if err != nil {
+		t.Fatalf("Failed to read saved file: %v", err)
+	}
+
+	if !strings.Contains(string(content), "[Startup]") {
+		t.Error("Saved file missing [Startup] section")
+	}
+}
+
+// TestHardwareProfile_Serialize_RoundTrip tests parse → serialize → parse round trip.
+func TestHardwareProfile_Serialize_RoundTrip(t *testing.T) {
+	profilePath := filepath.Join("..", "LocalProfiles", "VEN_10DE&DEV_2B85&SUBSYS_89EC1043&REV_A1&BUS_1&DEV_0&FN_0.cfg")
+
+	if _, err := os.Stat(profilePath); os.IsNotExist(err) {
+		t.Skipf("Profile file not found: %s", profilePath)
+	}
+
+	// Parse original
+	original, err := ParseHardwareProfile(profilePath)
+	if err != nil {
+		t.Fatalf("Failed to parse original: %v", err)
+	}
+
+	// Serialize
+	content, err := original.Serialize()
+	if err != nil {
+		t.Fatalf("serialize failed: %v", err)
+	}
+
+	// Write to temp file
+	tmpFile := filepath.Join(t.TempDir(), "roundtrip.cfg")
+	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	// Parse serialized version
+	roundTrip, err := ParseHardwareProfile(tmpFile)
+	if err != nil {
+		t.Fatalf("Failed to parse round-trip: %v", err)
+	}
+
+	// Compare key fields
+	if original.Startup.GetFormat() != roundTrip.Startup.GetFormat() {
+		t.Errorf("Format mismatch: %d vs %d", original.Startup.GetFormat(), roundTrip.Startup.GetFormat())
+	}
+	if original.Startup.GetPowerLimit() != roundTrip.Startup.GetPowerLimit() {
+		t.Errorf("PowerLimit mismatch: %d vs %d", original.Startup.GetPowerLimit(), roundTrip.Startup.GetPowerLimit())
+	}
+	if original.Startup.GetCoreClkBoost() != roundTrip.Startup.GetCoreClkBoost() {
+		t.Errorf("CoreClkBoost mismatch: %d vs %d", original.Startup.GetCoreClkBoost(), roundTrip.Startup.GetCoreClkBoost())
+	}
+	if original.Startup.GetMemClkBoost() != roundTrip.Startup.GetMemClkBoost() {
+		t.Errorf("MemClkBoost mismatch: %d vs %d", original.Startup.GetMemClkBoost(), roundTrip.Startup.GetMemClkBoost())
+	}
+
+	// Compare V-F curves (should be identical)
+	if len(original.Startup.VFCurve) != len(roundTrip.Startup.VFCurve) {
+		t.Errorf("VFCurve length mismatch: %d vs %d", len(original.Startup.VFCurve), len(roundTrip.Startup.VFCurve))
+	}
+}
+
+// Helper function to create int pointer.
+func intPtr(v int) *int {
+	return &v
 }

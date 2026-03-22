@@ -28,6 +28,8 @@ What are you building?
 ├── Parsing hardware profile .cfg?  → msiaf/profile.go
 ├── Fan curve binary format?        → msiaf/fancurve.go
 ├── V-F curve binary format?        → msiaf/vfcurve.go
+├── Profile matching/detection?     → msiaf/active.go
+├── Writing profiles?               → msiaf/profile.go (Save methods)
 ├── New binary format?              → msiaf/<format>.go (new file)
 ├── GPU manufacturer lookups?       → msiaf/catalog/ (hand-written)
 ├── GPU data table?                 → msiaf/catalog_generated.go (auto-generated)
@@ -106,13 +108,15 @@ At the end of successful sessions (everything builds, tests pass, stable conclus
 ├── msiaf/                      # Main package - MSI Afterburner parsing
 │   ├── scan.go                 # HardwareProfileInfo, Scan(), file discovery
 │   ├── scan_test.go
+│   ├── active.go               # Profile matching (detect active profile)
+│   ├── active_test.go          # Profile matching tests
 │   ├── globalconfig.go         # Settings struct, ParseGlobalConfig()
 │   ├── globalconfig_test.go
-│   ├── profile.go              # HardwareProfile struct, section parsing
+│   ├── profile.go              # HardwareProfile struct, parsing + writing
 │   ├── profile_test.go
 │   ├── fancurve.go             # Fan curve binary deserialization
 │   ├── fancurve_test.go
-│   ├── vfcurve.go              # V-F curve binary deserialization
+│   ├── vfcurve.go              # V-F curve binary deserialization + marshaling
 │   ├── vfcurve_test.go
 │   └── catalog/                # GPU lookup subpackage
 │       ├── catalog.go          # LookupGPU(), LookupManufacturer() (hand-written)
@@ -537,6 +541,17 @@ The voltage-frequency curve (`VFCurve`) uses a binary format stored as a hex blo
 
 The `.cfg` blob alone is **insufficient** to compute exact GPU frequencies. The `vfcurve.go` implementation **only exposes authoritative data** extracted from the binary blob (voltage, oc_ref, offset). Users needing actual frequencies must use runtime tools (nvidia-smi, NVML, NvAPI).
 
+### Marshaling (Writing V-F Curves)
+
+```go
+// Serialize V-F curve to hex string (no "0x" prefix or "h" suffix)
+hexData, err := curve.Marshal()
+
+// Apply flat offset to all active points
+curve.ApplyFlatOffset(100)  // +100 MHz overclock
+curve.ApplyFlatOffset(-50)  // -50 MHz undervolt
+```
+
 ### Testing
 
 | Test Type | Location |
@@ -544,6 +559,177 @@ The `.cfg` blob alone is **insufficient** to compute exact GPU frequencies. The 
 | Unit tests | `msiaf/vfcurve_test.go` |
 | Integration tests | Use actual profile files from `LocalProfiles/` |
 | Verification | Parsed values match MSI Afterburner UI (e.g., 1000 mV → +43 MHz offset) |
+
+---
+
+## 7. PROFILE MATCHING
+
+**Location:** `msiaf/active.go`
+
+The profile matching system detects which hardware profile slot (Startup or Profile1-5) is currently active by comparing the live GPU V-F curve against saved profiles.
+
+### How It Works
+
+1. Read live V-F curve from NVIDIA driver using `nvvf.ReadNvAPIVF()`
+2. Build voltage→frequency map from live data
+3. Compare against each profile slot's V-F curve
+4. Return confidence scores for each slot
+
+### Key Types
+
+| Type | Purpose |
+|------|---------|
+| `ProfileMatchResult` | Contains match statistics (confidence, matched points, deviations) |
+| `ProfileMatchResult.Slot` | Slot number (0=Startup, 1-5=Profile1-5) |
+| `ProfileMatchResult.SlotName` | Human-readable name ("Startup", "Profile1", etc.) |
+| `ProfileMatchResult.MatchConfidence` | 0.0 to 1.0 confidence score |
+| `ProfileMatchResult.IsMatch(threshold)` | Returns true if confidence meets threshold |
+
+### Key Functions
+
+| Function | Purpose |
+|----------|---------|
+| `MatchVFCurve(liveFreqs, profileCurve, toleranceMHz)` | Compare single V-F curve against live data |
+| `MatchProfileAgainstLive(liveFreqs, hwProfile, toleranceMHz)` | Compare all profile slots, returns []ProfileMatchResult |
+| `FindBestMatch(results, threshold)` | Find slot with highest confidence |
+
+### Usage Pattern
+
+```go
+// Read live state from nvvf
+nvvfPoints, err := nvvf.ReadNvAPIVF(0)
+if err != nil {
+    // handle error
+}
+
+// Build voltage→frequency map
+liveFreqs := make(map[float32]float64)
+for _, pt := range nvvfPoints {
+    liveFreqs[float32(pt.VoltageMV)] = pt.BaseFreqMHz
+}
+
+// Load hardware profile
+hwProfile, err := profileInfo.LoadProfile()
+if err != nil {
+    // handle error
+}
+
+// Match against all slots (tolerance: 10 MHz typical)
+results, err := msiaf.MatchProfileAgainstLive(liveFreqs, hwProfile, 10.0)
+if err != nil {
+    // handle error
+}
+
+// Find active profile (80% confidence threshold)
+best, isMatch := msiaf.FindBestMatch(results, 0.8)
+if isMatch {
+    fmt.Printf("Active: %s (%.0f%% confidence)\n", best.SlotName, best.MatchConfidence*100)
+}
+```
+
+### Matching Algorithm
+
+| Aspect | Detail |
+|--------|--------|
+| **Comparison** | `liveFreq` vs `OCScannerRefMHz + OffsetMHz` |
+| **Active points only** | Inactive points (OCScannerRef=225.0) are skipped |
+| **Tolerance** | Accounts for floating-point precision (typical: 5-10 MHz) |
+| **Confidence** | Ratio of matched points to total comparable points |
+| **Best match** | Highest confidence wins (first slot breaks ties) |
+
+### Testing Guidelines
+
+- Use realistic tolerance (5-10 MHz)
+- Account for incomplete live data (some voltages may be missing)
+- Test with both perfect matches and partial matches
+- Verify confidence scores reflect actual match quality
+
+---
+
+## 8. PROFILE WRITING
+
+**Location:** `msiaf/profile.go`, `msiaf/vfcurve.go`
+
+Profiles can be modified and saved back to disk with proper serialization.
+
+### V-F Curve Marshaling
+
+```go
+// Serialize V-F curve to hex string
+hexData, err := curve.Marshal()
+if err != nil {
+    return err
+}
+
+// Apply flat offset to all active points
+curve.ApplyFlatOffset(100) // +100 MHz overclock
+```
+
+### Profile Saving
+
+| Method | Purpose |
+|--------|---------|
+| `hwProfile.Save()` | Save to original path (auto-backup as `.bak`) |
+| `hwProfile.SaveAs(path)` | Save to custom path |
+| `section.SetVFCurveFromCurve(curve)` | Update section with new V-F curve |
+| `section.SetVFCurve(hexData)` | Update section with raw hex string |
+
+### Serialization Format
+
+| Aspect | Detail |
+|--------|--------|
+| **All keys written** | Empty values for nil fields: `Key=` |
+| **Hex case** | Uppercase (`%X` format) |
+| **VFCurve suffix** | `h` (e.g., `VFCurve=ABCD1234h`) |
+| **Compatibility** | Matches MSI Afterburner's expected format |
+
+### Safety Features
+
+- `Save()` creates automatic backup before overwriting (`.bak` extension)
+- Backup restored if write fails
+- Backup removed on success
+- Use `SaveAs()` for creating new files without backup
+
+### Example: Update and Save Profile
+
+```go
+// Load profile
+hwProfile, err := profileInfo.LoadProfile()
+if err != nil {
+    return err
+}
+
+// Get current V-F curve
+hexData := fmt.Sprintf("%x", hwProfile.Startup.VFCurve)
+curve, err := msiaf.UnmarshalVFControlCurve(hexData)
+if err != nil {
+    return err
+}
+
+// Modify curve
+curve.ApplyFlatOffset(100) // +100 MHz overclock
+
+// Update profile
+err = hwProfile.Startup.SetVFCurveFromCurve(curve)
+if err != nil {
+    return err
+}
+
+// Save (creates backup automatically)
+err = hwProfile.Save()
+if err != nil {
+    return err
+}
+```
+
+### Testing Guidelines
+
+- Always test round-trip: parse → modify → serialize → parse again
+- Verify VFCurve hex is identical after round-trip
+- Test backup creation and restoration on failure
+- Clean up test files after verification
+
+---
 
 ---
 
@@ -818,6 +1004,9 @@ func main() {
 | Deprecated API warnings | Check Go version and update to modern equivalents |
 | Fan curve parsing fails | Verify version byte matches `FanCurveBinaryFormatVersion` (0x00010000) |
 | V-F curve offset seems wrong | Remember: offset is added to hardware boost (driver-private), not absolute frequency |
+| Profile matching shows low confidence | Check if live data has enough voltage points; adjust tolerance (5-10 MHz typical) |
+| Save() fails with "no file path" | Profile was created programmatically; use `SaveAs()` instead |
+| Serialized profile has extra empty keys | Expected behavior - all keys written with empty values for nil fields |
 
 ---
 

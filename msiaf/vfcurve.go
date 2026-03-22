@@ -488,6 +488,113 @@ func (c *VFControlCurveInfo) GetOffsetAt(voltageMV float32) float32 {
 	return point.OffsetMHz
 }
 
+// Marshal serializes the V-F curve to the hex blob format used in MSI Afterburner .cfg files.
+//
+// The serialization follows the binary format specification:
+//   - Header (12 bytes): [version:uint32][count:uint32][reserved:float32]
+//   - Triplets (12 bytes each): [voltage:float32][oc_ref:float32][offset:float32]
+//
+// The returned hex string can be directly written to a .cfg file as the VFCurve= value.
+// Do NOT include "0x" prefix or "h" suffix - those are added by the profile writer.
+//
+// Example:
+//
+//	hexData, err := curve.Marshal()
+//	if err != nil {
+//	    return err
+//	}
+//	// Write to .cfg file: VFCurve=%shexData
+//
+// This is the inverse of UnmarshalVFControlCurve.
+func (c *VFControlCurveInfo) Marshal() (string, error) {
+	if c.Version != VFControlCurveVersion2 {
+		return "", &VFControlCurveError{
+			Field:   "Version",
+			Message: fmt.Sprintf("unsupported version 0x%08X, only 0x%08X is supported", c.Version, VFControlCurveVersion2),
+		}
+	}
+
+	pointCount := len(c.Points)
+	if pointCount == 0 {
+		return "", &VFControlCurveError{
+			Field:   "Points",
+			Message: "cannot marshal curve with no points",
+		}
+	}
+
+	if pointCount > VFControlCurveMaxPoints {
+		return "", &VFControlCurveError{
+			Field:   "Points",
+			Message: fmt.Sprintf("too many points: %d, maximum is %d", pointCount, VFControlCurveMaxPoints),
+		}
+	}
+
+	// Calculate buffer size: 12-byte header + 12 bytes per point
+	headerSize := VFControlCurveHeaderSize
+	dataSize := headerSize + (pointCount * VFControlCurveTripletSize)
+	binaryData := make([]byte, dataSize)
+
+	// Write header
+	// Bytes 0-3: version (little-endian uint32)
+	binary.LittleEndian.PutUint32(binaryData[0:4], c.Version)
+
+	// Bytes 4-7: point count (little-endian uint32)
+	binary.LittleEndian.PutUint32(binaryData[4:8], uint32(pointCount))
+
+	// Bytes 8-11: reserved (float32, always 0.0)
+	binary.LittleEndian.PutUint32(binaryData[8:12], 0)
+
+	// Write triplets for each point
+	offset := headerSize
+	for i, point := range c.Points {
+		if i >= pointCount {
+			break
+		}
+
+		// Bytes 0-3: voltage (float32)
+		binary.LittleEndian.PutUint32(binaryData[offset:offset+4], math.Float32bits(point.VoltageMV))
+
+		// Bytes 4-7: OC Scanner reference (float32)
+		// For inactive points, use the inactive marker (225.0)
+		ocRef := point.OCScannerRefMHz
+		if !point.IsActive {
+			ocRef = VFControlCurveInactiveMarker
+		}
+		binary.LittleEndian.PutUint32(binaryData[offset+4:offset+8], math.Float32bits(ocRef))
+
+		// Bytes 8-11: offset (float32)
+		binary.LittleEndian.PutUint32(binaryData[offset+8:offset+12], math.Float32bits(point.OffsetMHz))
+
+		offset += VFControlCurveTripletSize
+	}
+
+	// Return hex-encoded string (no prefix or suffix)
+	return fmt.Sprintf("%x", binaryData), nil
+}
+
+// ApplyFlatOffset adds a frequency offset to all active points in the curve.
+// This is useful for applying a uniform overclock or undervolt across the entire curve.
+//
+// Positive offsetMHz increases frequencies (overclock).
+// Negative offsetMHz decreases frequencies (undervolt).
+//
+// Inactive points remain unchanged (they use stock behavior).
+//
+// Example:
+//
+//	// Apply +100 MHz overclock to all active points
+//	curve.ApplyFlatOffset(100)
+//
+//	// Apply -50 MHz undervolt to all active points
+//	curve.ApplyFlatOffset(-50)
+func (c *VFControlCurveInfo) ApplyFlatOffset(offsetMHz float32) {
+	for i := range c.Points {
+		if c.Points[i].IsActive {
+			c.Points[i].OffsetMHz += offsetMHz
+		}
+	}
+}
+
 // absFloat returns the absolute value of a float32.
 func absFloat(f float32) float32 {
 	if f < 0 {

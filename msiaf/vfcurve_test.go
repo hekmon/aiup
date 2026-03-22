@@ -290,3 +290,276 @@ func TestVFCurveValidation(t *testing.T) {
 		})
 	}
 }
+
+// TestVFControlCurveInfo_Marshal tests marshaling a VF curve to hex format.
+func TestVFControlCurveInfo_Marshal(t *testing.T) {
+	// Create a simple curve with known values
+	curve := &VFControlCurveInfo{
+		Version:    VFControlCurveVersion2,
+		PointCount: 3,
+		Points: []VFPoint{
+			{
+				Index:           0,
+				VoltageMV:       800,
+				OCScannerRefMHz: 2500,
+				OffsetMHz:       100,
+				IsActive:        true,
+			},
+			{
+				Index:           1,
+				VoltageMV:       900,
+				OCScannerRefMHz: 2700,
+				OffsetMHz:       50,
+				IsActive:        true,
+			},
+			{
+				Index:           2,
+				VoltageMV:       1000,
+				OCScannerRefMHz: 225.0, // Inactive
+				OffsetMHz:       0,
+				IsActive:        false,
+			},
+		},
+	}
+
+	hexData, err := curve.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	// Verify hex data is not empty
+	if len(hexData) == 0 {
+		t.Error("Marshal returned empty hex data")
+	}
+
+	// Verify hex data length: 12-byte header + 3 points * 12 bytes = 48 bytes = 96 hex chars
+	expectedLen := 12 + (3 * 12)
+	expectedHexLen := expectedLen * 2
+	if len(hexData) != expectedHexLen {
+		t.Errorf("Expected hex length %d, got %d", expectedHexLen, len(hexData))
+	}
+
+	// Verify no prefix or suffix
+	if len(hexData) > 2 && (hexData[:2] == "0x" || hexData[len(hexData)-1:] == "h") {
+		t.Error("Marshal should not include 0x prefix or h suffix")
+	}
+}
+
+// TestVFControlCurveInfo_Marshal_RoundTrip tests that Marshal + Unmarshal produces identical data.
+func TestVFControlCurveInfo_Marshal_RoundTrip(t *testing.T) {
+	// Create original curve
+	original := &VFControlCurveInfo{
+		Version:    VFControlCurveVersion2,
+		PointCount: 4,
+		Points: []VFPoint{
+			{
+				Index:           0,
+				VoltageMV:       800,
+				OCScannerRefMHz: 2500,
+				OffsetMHz:       100,
+				IsActive:        true,
+			},
+			{
+				Index:           1,
+				VoltageMV:       850,
+				OCScannerRefMHz: 2600,
+				OffsetMHz:       75,
+				IsActive:        true,
+			},
+			{
+				Index:           2,
+				VoltageMV:       900,
+				OCScannerRefMHz: 225.0,
+				OffsetMHz:       0,
+				IsActive:        false,
+			},
+			{
+				Index:           3,
+				VoltageMV:       950,
+				OCScannerRefMHz: 2750,
+				OffsetMHz:       -50,
+				IsActive:        true,
+			},
+		},
+	}
+
+	// Marshal to hex
+	hexData, err := original.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	// Unmarshal back
+	roundTrip, err := UnmarshalVFControlCurve(hexData)
+	if err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	// Verify round-trip data matches original
+	if roundTrip.Version != original.Version {
+		t.Errorf("Version mismatch: %d vs %d", roundTrip.Version, original.Version)
+	}
+
+	if len(roundTrip.Points) != len(original.Points) {
+		t.Errorf("Point count mismatch: %d vs %d", len(roundTrip.Points), len(original.Points))
+	}
+
+	for i := range original.Points {
+		orig := original.Points[i]
+		rt := roundTrip.Points[i]
+
+		if orig.VoltageMV != rt.VoltageMV {
+			t.Errorf("Point %d voltage mismatch: %.1f vs %.1f", i, orig.VoltageMV, rt.VoltageMV)
+		}
+
+		if orig.OffsetMHz != rt.OffsetMHz {
+			t.Errorf("Point %d offset mismatch: %.1f vs %.1f", i, orig.OffsetMHz, rt.OffsetMHz)
+		}
+
+		if orig.IsActive != rt.IsActive {
+			t.Errorf("Point %d IsActive mismatch: %v vs %v", i, orig.IsActive, rt.IsActive)
+		}
+
+		// For active points, OCScannerRef should match
+		if orig.IsActive && orig.OCScannerRefMHz != rt.OCScannerRefMHz {
+			t.Errorf("Point %d OCScannerRef mismatch: %.1f vs %.1f", i, orig.OCScannerRefMHz, rt.OCScannerRefMHz)
+		}
+
+		// For inactive points, OCScannerRef should be 225.0
+		if !orig.IsActive && rt.OCScannerRefMHz != 225.0 {
+			t.Errorf("Point %d inactive marker mismatch: %.1f vs 225.0", i, rt.OCScannerRefMHz)
+		}
+	}
+}
+
+// TestVFControlCurveInfo_Marshal_Errors tests error cases for Marshal.
+func TestVFControlCurveInfo_Marshal_Errors(t *testing.T) {
+	// Test unsupported version
+	badVersion := &VFControlCurveInfo{
+		Version:    0x00010000,
+		PointCount: 1,
+		Points: []VFPoint{
+			{Index: 0, VoltageMV: 800, OCScannerRefMHz: 2500, OffsetMHz: 100, IsActive: true},
+		},
+	}
+	_, err := badVersion.Marshal()
+	if err == nil {
+		t.Error("Expected error for unsupported version")
+	}
+
+	// Test no points
+	noPoints := &VFControlCurveInfo{
+		Version:    VFControlCurveVersion2,
+		PointCount: 0,
+		Points:     []VFPoint{},
+	}
+	_, err = noPoints.Marshal()
+	if err == nil {
+		t.Error("Expected error for curve with no points")
+	}
+
+	// Test too many points
+	tooMany := &VFControlCurveInfo{
+		Version:    VFControlCurveVersion2,
+		PointCount: VFControlCurveMaxPoints + 1,
+		Points:     make([]VFPoint, VFControlCurveMaxPoints+1),
+	}
+	_, err = tooMany.Marshal()
+	if err == nil {
+		t.Error("Expected error for too many points")
+	}
+}
+
+// TestVFControlCurveInfo_ApplyFlatOffset tests applying flat offset to all active points.
+func TestVFControlCurveInfo_ApplyFlatOffset(t *testing.T) {
+	curve := &VFControlCurveInfo{
+		Version:    VFControlCurveVersion2,
+		PointCount: 4,
+		Points: []VFPoint{
+			{
+				Index:           0,
+				VoltageMV:       800,
+				OCScannerRefMHz: 2500,
+				OffsetMHz:       100,
+				IsActive:        true,
+			},
+			{
+				Index:           1,
+				VoltageMV:       850,
+				OCScannerRefMHz: 225.0,
+				OffsetMHz:       0,
+				IsActive:        false,
+			},
+			{
+				Index:           2,
+				VoltageMV:       900,
+				OCScannerRefMHz: 2700,
+				OffsetMHz:       50,
+				IsActive:        true,
+			},
+			{
+				Index:           3,
+				VoltageMV:       950,
+				OCScannerRefMHz: 2800,
+				OffsetMHz:       -25,
+				IsActive:        true,
+			},
+		},
+	}
+
+	// Apply +100 MHz offset
+	curve.ApplyFlatOffset(100)
+
+	// Verify active points were modified
+	if curve.Points[0].OffsetMHz != 200 {
+		t.Errorf("Point 0 offset should be 200, got %.1f", curve.Points[0].OffsetMHz)
+	}
+
+	// Inactive point should not be modified
+	if curve.Points[1].OffsetMHz != 0 {
+		t.Errorf("Inactive point 1 offset should remain 0, got %.1f", curve.Points[1].OffsetMHz)
+	}
+
+	if curve.Points[2].OffsetMHz != 150 {
+		t.Errorf("Point 2 offset should be 150, got %.1f", curve.Points[2].OffsetMHz)
+	}
+
+	if curve.Points[3].OffsetMHz != 75 {
+		t.Errorf("Point 3 offset should be 75, got %.1f", curve.Points[3].OffsetMHz)
+	}
+}
+
+// TestVFControlCurveInfo_ApplyFlatOffset_Negative tests applying negative offset (undervolt).
+func TestVFControlCurveInfo_ApplyFlatOffset_Negative(t *testing.T) {
+	curve := &VFControlCurveInfo{
+		Version:    VFControlCurveVersion2,
+		PointCount: 2,
+		Points: []VFPoint{
+			{
+				Index:           0,
+				VoltageMV:       800,
+				OCScannerRefMHz: 2500,
+				OffsetMHz:       100,
+				IsActive:        true,
+			},
+			{
+				Index:           1,
+				VoltageMV:       900,
+				OCScannerRefMHz: 2700,
+				OffsetMHz:       50,
+				IsActive:        true,
+			},
+		},
+	}
+
+	// Apply -50 MHz offset (undervolt)
+	curve.ApplyFlatOffset(-50)
+
+	if curve.Points[0].OffsetMHz != 50 {
+		t.Errorf("Point 0 offset should be 50, got %.1f", curve.Points[0].OffsetMHz)
+	}
+
+	if curve.Points[1].OffsetMHz != 0 {
+		t.Errorf("Point 1 offset should be 0, got %.1f", curve.Points[1].OffsetMHz)
+	}
+}

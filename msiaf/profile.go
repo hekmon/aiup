@@ -366,3 +366,168 @@ func (ps *ProfileSection) SetFanSpeed2(v int) {
 func (h *HardwareProfileInfo) LoadProfile() (*HardwareProfile, error) {
 	return ParseHardwareProfile(h.FilePath)
 }
+
+// SetVFCurve sets the V-F curve from a hex-encoded blob.
+// The hexData should be the raw hex string (no "0x" prefix or "h" suffix).
+func (ps *ProfileSection) SetVFCurve(hexData string) {
+	ps.VFCurve = parseHexBlob(hexData)
+}
+
+// SetVFCurveFromCurve serializes a VFControlCurveInfo and sets it as the V-F curve.
+// Returns an error if marshaling fails.
+func (ps *ProfileSection) SetVFCurveFromCurve(curve *VFControlCurveInfo) error {
+	hexData, err := curve.Marshal()
+	if err != nil {
+		return err
+	}
+	ps.VFCurve = parseHexBlob(hexData)
+	return nil
+}
+
+// SaveAs writes the hardware profile to the specified file path.
+// The profile is serialized in INI format compatible with MSI Afterburner.
+//
+// Example:
+//
+//	err := hwProfile.SaveAs("backup.cfg")
+//	if err != nil {
+//	    return err
+//	}
+func (h *HardwareProfile) SaveAs(filePath string) error {
+	content, err := h.Serialize()
+	if err != nil {
+		return fmt.Errorf("failed to serialize profile: %w", err)
+	}
+
+	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("failed to write profile file: %w", err)
+	}
+
+	return nil
+}
+
+// Save writes the hardware profile back to its original file path.
+// A backup is automatically created with .bak extension before overwriting.
+//
+// Example:
+//
+//	err := hwProfile.Save()
+//	if err != nil {
+//	    return err
+//	}
+func (h *HardwareProfile) Save() error {
+	if h.filePath == "" {
+		return fmt.Errorf("cannot save: profile has no file path")
+	}
+
+	// Create backup before overwriting
+	backupPath := h.filePath + ".bak"
+	if err := os.Rename(h.filePath, backupPath); err != nil {
+		return fmt.Errorf("failed to create backup: %w", err)
+	}
+
+	// Write new profile
+	if err := h.SaveAs(h.filePath); err != nil {
+		// Try to restore backup on failure
+		os.Rename(backupPath, h.filePath)
+		return err
+	}
+
+	// Remove backup on success
+	os.Remove(backupPath)
+	return nil
+}
+
+// Serialize converts the HardwareProfile to INI format.
+// This method is exported for testing and debugging purposes.
+func (h *HardwareProfile) Serialize() (string, error) {
+	var sb strings.Builder
+
+	// Write Startup section
+	sb.WriteString("[Startup]\n")
+	h.serializeProfileSection(&sb, &h.Startup)
+	sb.WriteString("\n")
+
+	// Write Profile1-5 sections
+	for i := range h.Profiles {
+		slot := &h.Profiles[i]
+		if !slot.IsEmpty {
+			sb.WriteString(fmt.Sprintf("[Profile%d]\n", i+1))
+			h.serializeProfileSection(&sb, &slot.ProfileSection)
+			sb.WriteString("\n")
+		}
+	}
+
+	// Write Defaults section if it has settings
+	if h.Defaults.HasSettings() {
+		sb.WriteString("[Defaults]\n")
+		h.serializeProfileSection(&sb, &h.Defaults)
+		sb.WriteString("\n")
+	}
+
+	// Write PreSuspendedMode section if it has settings
+	if h.PreSuspendedMode.HasSettings() {
+		sb.WriteString("[PreSuspendedMode]\n")
+		h.serializeProfileSection(&sb, &h.PreSuspendedMode)
+		sb.WriteString("\n")
+	}
+
+	// Write Settings section if it has values
+	if h.Settings.CaptureDefaults != nil {
+		sb.WriteString("[Settings]\n")
+		sb.WriteString(fmt.Sprintf("CaptureDefaults=%d\n", *h.Settings.CaptureDefaults))
+		sb.WriteString("\n")
+	}
+
+	return sb.String(), nil
+}
+
+// serializeProfileSection writes a ProfileSection to the string builder.
+// All keys are written, with empty values for nil fields.
+func (h *HardwareProfile) serializeProfileSection(sb *strings.Builder, ps *ProfileSection) {
+	if ps.Format != nil {
+		sb.WriteString(fmt.Sprintf("Format=%d\n", *ps.Format))
+	} else {
+		sb.WriteString("Format=\n")
+	}
+	if ps.PowerLimit != nil {
+		sb.WriteString(fmt.Sprintf("PowerLimit=%d\n", *ps.PowerLimit))
+	} else {
+		sb.WriteString("PowerLimit=\n")
+	}
+	if ps.CoreClkBoost != nil {
+		sb.WriteString(fmt.Sprintf("CoreClkBoost=%d\n", *ps.CoreClkBoost))
+	} else {
+		sb.WriteString("CoreClkBoost=\n")
+	}
+	if len(ps.VFCurve) > 0 {
+		sb.WriteString(fmt.Sprintf("VFCurve=%Xh\n", ps.VFCurve))
+	} else {
+		sb.WriteString("VFCurve=\n")
+	}
+	if ps.MemClkBoost != nil {
+		sb.WriteString(fmt.Sprintf("MemClkBoost=%d\n", *ps.MemClkBoost))
+	} else {
+		sb.WriteString("MemClkBoost=\n")
+	}
+	if ps.FanMode != nil {
+		sb.WriteString(fmt.Sprintf("FanMode=%d\n", *ps.FanMode))
+	} else {
+		sb.WriteString("FanMode=\n")
+	}
+	if ps.FanSpeed != nil {
+		sb.WriteString(fmt.Sprintf("FanSpeed=%d\n", *ps.FanSpeed))
+	} else {
+		sb.WriteString("FanSpeed=\n")
+	}
+	if ps.FanMode2 != nil {
+		sb.WriteString(fmt.Sprintf("FanMode2=%d\n", *ps.FanMode2))
+	} else {
+		sb.WriteString("FanMode2=\n")
+	}
+	if ps.FanSpeed2 != nil {
+		sb.WriteString(fmt.Sprintf("FanSpeed2=%d\n", *ps.FanSpeed2))
+	} else {
+		sb.WriteString("FanSpeed2=\n")
+	}
+}
