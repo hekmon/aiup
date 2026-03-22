@@ -6,11 +6,13 @@ This package provides tools for reading NVIDIA GPU voltage-frequency (V-F) curve
 
 The `nvvf` package reads **live V-F curve data from the NVIDIA driver** on Windows and Linux systems. This provides:
 
-- **Exact hardware base frequencies** from the driver's pstate table
-- **User-applied frequency offsets** from driver control settings
+- **Current driver frequencies** from the driver's pstate table (includes OC Scanner/hardware profile modifications)
+- **Additional offsets** applied via NvAPI SetControl (typically 0 when using OC Scanner)
 - **Precise effective frequencies** (base + offset)
 
 This data was previously only accessible through proprietary tools like MSI Afterburner.
+
+⚠️ **Important:** OC Scanner and MSI Afterburner hardware profiles modify the driver's internal boost tables directly. NvAPI reads back these **already-modified** tables, not the stock hardware curve. See the "OC Scanner Behavior" section below.
 
 ## Attribution
 
@@ -70,11 +72,14 @@ points, err := nvvf.ReadNvAPIVFLegacy(0)
 type VFPoint struct {
     Index        int     // Point index (0-127)
     VoltageMV    float64 // Voltage in millivolts
-    BaseFreqMHz  float64 // Hardware base frequency from driver
-    OffsetMHz    float64 // User frequency offset
-    EffectiveMHz float64 // Base + Offset (exact applied frequency)
+    BaseFreqMHz  float64 // Current driver frequency (includes OC Scanner/hardware profile modifications)
+    OffsetMHz    float64 // Additional offsets via NvAPI SetControl only (0 if using OC Scanner)
+    EffectiveMHz float64 // Actual GPU frequency = BaseFreqMHz + OffsetMHz
+    OCScanMHz    float64 // OC Scanner reference (only from .cfg parsing, 0 from NvAPI)
 }
 ```
+
+⚠️ **Note:** `BaseFreqMHz` is NOT the stock hardware curve when OC Scanner or hardware profiles are applied - it's the **final applied frequency**. OC Scanner offsets do NOT appear in `OffsetMHz` because they're applied at a lower level than NvAPI SetControl.
 
 ## Requirements
 
@@ -181,14 +186,74 @@ cfgPoints, _ := msiaf.UnmarshalVFControlCurve(cfgBlob)
 
 // Compare live vs saved
 for i := range nvapiPoints {
-    fmt.Printf("Point %d: live offset=%.0f MHz, saved offset=%.0f MHz\n",
-        i, nvapiPoints[i].OffsetMHz, cfgPoints[i].OffsetMHz)
+    fmt.Printf("Point %d: live freq=%.0f MHz, saved freq=%.0f MHz\n",
+        i, nvapiPoints[i].EffectiveMHz, cfgPoints[i].EffectiveMHz)
 }
 ```
 
 **Package responsibilities:**
-- `nvvf` → NvAPI driver access (Windows + Linux)
-- `msiaf` → MSI Afterburner .cfg file parsing (cross-platform)
+- `nvvf` → NvAPI driver access (Windows + Linux) - reads **applied** curve
+- `msiaf` → MSI Afterburner .cfg file parsing (cross-platform) - reads **configured** curve
+
+## OC Scanner and Hardware Profile Behavior
+
+### Why OffsetMHz Shows 0 When OC Scanner is Active
+
+When you apply an OC Scanner profile or MSI Afterburner hardware profile, the NVIDIA driver modifies its internal boost tables **directly at a level below NvAPI**. This means:
+
+| Field | What It Shows | OC Scanner Scenario |
+|-------|---------------|---------------------|
+| **BaseFreqMHz** | Current driver state | ✅ **Includes OC Scanner** (e.g., 2317 MHz) |
+| **OffsetMHz** | NvAPI SetControl only | ❌ Always 0 (OC Scanner doesn't use SetControl) |
+| **EffectiveMHz** | Actual GPU frequency | ✅ Matches applied curve (e.g., 2317 MHz) |
+
+### Example: 850 mV with OC Scanner Applied
+
+**From .cfg file (msiaf package):**
+```
+Voltage:   850 mV
+OC Ref:    1365 MHz (f2 - OC Scanner reference)
+Offset:    +952 MHz (f0 - user offset)
+Effective: 2317 MHz (1365 + 952)
+```
+
+**From NvAPI (nvvf package):**
+```
+Voltage:      850 mV
+BaseFreqMHz:  2317 MHz (driver already applied OC Scanner math)
+OffsetMHz:    0 MHz (no additional SetControl offsets)
+EffectiveMHz: 2317 MHz (matches .cfg!)
+```
+
+### Key Takeaways
+
+1. **OC Scanner profiles ARE applied correctly** - NvAPI shows the final result
+2. **OffsetMHz = 0 is expected** - OC Scanner doesn't use NvAPI SetControl
+3. **To see OC Scanner offsets** - Parse .cfg files with the `msiaf` package
+4. **To verify OC Scanner is working** - Compare EffectiveMHz from both sources
+
+### Detecting OC Scanner vs Stock Curve
+
+You **cannot** detect OC Scanner offsets from NvAPI alone. To analyze OC Scanner behavior:
+
+```go
+// Step 1: Read what the driver is applying (includes OC Scanner)
+nvapiPoints, _ := nvvf.ReadNvAPIVF(0)
+
+// Step 2: Read the .cfg configuration
+profile, _ := msiaf.Scan("LocalProfiles")
+cfgPoints, _ := msiaf.UnmarshalVFControlCurve(profile.HardwareProfiles[0].VFCurve)
+
+// Step 3: Compare to understand what's applied
+for i := range nvapiPoints {
+    fmt.Printf("Voltage %.0f mV: NvAPI=%.0f MHz, .cfg=%.0f MHz\n",
+        nvapiPoints[i].VoltageMV,
+        nvapiPoints[i].EffectiveMHz,
+        cfgPoints[i].EffectiveMHz)
+}
+```
+
+If both match, OC Scanner/hardware profile is applied correctly. The .cfg file will show the individual `oc_ref` and `offset` components that NvAPI combines internally.
 
 ## Use Cases
 

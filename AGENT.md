@@ -435,6 +435,33 @@ go vet ./...      # Ensure no unsafe.Pointer warnings
 go test ./...     # Skip if no NVIDIA hardware
 ```
 
+### OC Scanner and Hardware Profile Behavior
+
+**Critical:** OC Scanner and MSI Afterburner hardware profiles modify the driver's internal boost tables **directly at a level below NvAPI**. This affects how you interpret `VFPoint` data:
+
+| Field | What It Shows | OC Scanner Scenario |
+|-------|---------------|---------------------|
+| **BaseFreqMHz** | Current driver state | ✅ **Includes OC Scanner** (e.g., 2317 MHz) |
+| **OffsetMHz** | NvAPI SetControl only | ❌ Always 0 (OC Scanner doesn't use SetControl) |
+| **EffectiveMHz** | Actual GPU frequency | ✅ Matches applied curve (e.g., 2317 MHz) |
+
+**Example at 850 mV with OC Scanner applied:**
+
+|.cfg file (msiaf)|NvAPI (nvvf)|
+|-----------------|------------|
+|Voltage: 850 mV|Voltage: 850 mV|
+|OC Ref: 1365 MHz (f2)|BaseFreqMHz: 2317 MHz|
+|Offset: +952 MHz (f0)|OffsetMHz: 0 MHz|
+|Effective: 2317 MHz|EffectiveMHz: 2317 MHz|
+
+**Key takeaways:**
+1. OC Scanner profiles ARE applied correctly - NvAPI shows the final result
+2. OffsetMHz = 0 is expected - OC Scanner doesn't use NvAPI SetControl
+3. To see OC Scanner offsets, parse .cfg files with the `msiaf` package
+4. To verify OC Scanner is working, compare EffectiveMHz from both sources
+
+**You cannot detect OC Scanner offsets from NvAPI alone.** The driver has already applied OC Scanner's math internally, so NvAPI reads back the modified curve as the "base" frequency.
+
 ---
 
 ## 5. FAN CURVE SERIALIZATION

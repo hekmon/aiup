@@ -13,6 +13,34 @@
 //
 // Both platforms use identical NvAPI function IDs and struct layouts.
 //
+// # IMPORTANT - OC Scanner and Hardware Profile Behavior
+//
+// When OC Scanner or MSI Afterburner hardware profiles are applied, the NVIDIA driver
+// modifies its internal boost tables directly at a level below NvAPI. As a result:
+//
+//   - BaseFreqMHz returned by NvAPI is the ALREADY-MODIFIED curve (includes OC Scanner)
+//   - OffsetMHz is ONLY for additional offsets applied via NvAPI SetControl (typically 0)
+//   - OC Scanner profiles do NOT appear as offsets in NvAPI readings
+//
+// This means you CANNOT detect OC Scanner offsets by reading NvAPI alone. The driver
+// has already applied OC Scanner's voltage-frequency math internally, so NvAPI sees
+// the final result as the "base" hardware curve.
+//
+// To analyze OC Scanner profiles:
+//   1. Read .cfg files using the msiaf package to extract V-F curve data
+//   2. Parse the VFCurve blob to see oc_ref (f2) and offset (f0) values
+//   3. Compare with NvAPI readings to understand applied modifications
+//
+// Example at 850 mV with OC Scanner applied:
+//
+//	.cfg file:     oc_ref=1365 MHz, offset=+952 MHz → effective=2317 MHz
+//	NvAPI reads:   BaseFreqMHz=2317 MHz, OffsetMHz=0 MHz, EffectiveMHz=2317 MHz
+//
+// Both show 2317 MHz effective frequency, confirming OC Scanner is applied correctly.
+// The +952 MHz offset is visible in the .cfg file but not in NvAPI's OffsetMHz field.
+//
+// For complete V-F curve analysis, combine nvvf (NvAPI readings) with msiaf (.cfg parsing).
+//
 // # Credit & Attribution
 //
 // The Blackwell (RTX 50xx) struct sizes and function definitions were discovered
@@ -54,14 +82,36 @@ import (
 // Shared types
 // ---------------------------------------------------------------------------
 
-// VFPoint is a fully resolved voltage/frequency operating point.
+// VFPoint is a fully resolved voltage/frequency operating point read from the NVIDIA driver.
+//
+// IMPORTANT - OC Scanner and Hardware Profile Behavior:
+//
+// When OC Scanner or MSI Afterburner hardware profiles are applied, the NVIDIA driver
+// modifies its internal boost tables directly. NvAPI reads back these MODIFIED tables,
+// NOT the stock hardware curve. This means:
+//
+//   - BaseFreqMHz  = Current driver state (includes OC Scanner/hardware profile modifications)
+//   - OffsetMHz    = ONLY additional offsets applied via NvAPI SetControl (usually 0)
+//   - EffectiveMHz = Actual GPU frequency (BaseFreqMHz + OffsetMHz)
+//
+// OC Scanner profiles do NOT appear in OffsetMHz because they work at a lower level
+// than NvAPI SetControl. To see OC Scanner offsets, parse the .cfg file directly
+// using the msiaf package.
+//
+// Example scenario (OC Scanner applied at 850 mV):
+//
+//	.cfg file:     oc_ref=1365 MHz, offset=+952 MHz → effective=2317 MHz
+//	NvAPI reads:   BaseFreqMHz=2317 MHz, OffsetMHz=0, EffectiveMHz=2317 MHz
+//
+// The driver has already applied OC Scanner's math internally, so NvAPI sees the
+// final result as the "base" curve with no additional offsets.
 type VFPoint struct {
-	Index        int
-	VoltageMV    float64 // mV
-	BaseFreqMHz  float64 // hardware base clock (only from NvAPI, 0 if from cfg only)
-	OffsetMHz    float64 // user offset in MHz  (= f0 from cfg blob)
-	EffectiveMHz float64 // base + offset       (only exact when base is known)
-	OCScanMHz    float64 // OC Scanner ref      (= f2 from cfg blob, 0 if from NvAPI)
+	Index        int     // Point index (0-127)
+	VoltageMV    float64 // Voltage in millivolts
+	BaseFreqMHz  float64 // Current driver frequency at this voltage (includes OC Scanner/hardware profile modifications)
+	OffsetMHz    float64 // Additional offsets applied via NvAPI SetControl only (0 if using OC Scanner or .cfg profiles)
+	EffectiveMHz float64 // Actual GPU frequency = BaseFreqMHz + OffsetMHz
+	OCScanMHz    float64 // OC Scanner reference frequency (only from .cfg parsing, 0 from NvAPI)
 }
 
 // ---------------------------------------------------------------------------
