@@ -240,13 +240,7 @@ func FindBestMatch(results []ProfileMatchResult, confidenceThreshold float64) (b
 
 // String returns a human-readable summary of the match result.
 func (r *ProfileMatchResult) String() string {
-	return fmt.Sprintf("%s: %.0f%% confidence (%d/%d points matched, avg deviation: %.1f MHz, max: %.1f MHz)",
-		r.SlotName,
-		r.MatchConfidence*100,
-		r.MatchedPoints,
-		r.TotalPoints,
-		r.AvgDeviationMHz,
-		r.MaxDeviationMHz)
+	return fmt.Sprintf("%s: %s", r.SlotName, r.StringWithoutSlotName())
 }
 
 // StringWithoutSlotName returns the match result string without the slot name prefix.
