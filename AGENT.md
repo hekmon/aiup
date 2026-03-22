@@ -33,6 +33,11 @@ What are you building?
 ├── New binary format?              → msiaf/<format>.go (new file)
 ├── GPU manufacturer lookups?       → msiaf/catalog/ (hand-written)
 ├── GPU data table?                 → msiaf/catalog_generated.go (auto-generated)
+├── OC Scanner workflow?            → overclocking/ (see README.md)
+├── Profile comparison/diffing?     → overclocking/ (see README.md)
+├── Safety validation?              → overclocking/ (see README.md)
+├── Session management?             → overclocking/ (see README.md)
+├── High-level orchestration?       → overclocking/ (combines msiaf + nvvf)
 ├── Combining multiple sources?     → Method on existing type in root package
 ├── Thin wrapper around subpackage? → DON'T DO IT
 └── Utility/helper function?        → Method on the type users already have
@@ -150,6 +155,9 @@ At the end of successful sessions (everything builds, tests pass, stable conclus
 │   ├── gpuname_linux.go        # Linux GetGPUName() implementation
 │   └── nvapi_linux.go          # Linux NvAPI loading helpers (cgo)
 │
+├── overclocking/               # High-level overclocking orchestration
+│   └── README.md               # Package documentation and API guidelines (source files TBD)
+│
 └── tmp/                        # Temporary experiment tools (gitignored)
     └── <experiment_name>/      # Remove after implementation complete
 ```
@@ -180,6 +188,7 @@ At the end of successful sessions (everything builds, tests pass, stable conclus
 | `msiaf` (root) | Scanning, config parsing, value-added methods on types | `github.com/hekmon/aiup/msiaf` |
 | `msiaf/catalog` | Pure GPU/manufacturer lookup functions | `github.com/hekmon/aiup/msiaf/catalog` |
 | `nvvf` | Cross-platform NvAPI access: V-F curves, GPU marketing names, clock domain ranges | `github.com/hekmon/aiup/nvvf` |
+| `overclocking` | High-level orchestration: OC Scanner, profile comparison, safety validation | `github.com/hekmon/aiup/overclocking` |
 | `cmd/gencatalog` | Generator tool (not importable) | N/A |
 
 ---
@@ -724,6 +733,7 @@ Hardware profile files contain GPU-specific overclocking and fan settings.
 | **Windows NVAPI** | `nvvf/nvvf_windows.go` | syscall.LoadDLL(), syscall.SyscallN() implementation |
 | **Linux NVAPI** | `nvvf/nvvf_linux.go` | cgo dlopen/dlsym implementation |
 | **Catalog generation** | `cmd/gencatalog/main.go` | pci-ids fetching, filtering, Go code generation |
+| **Overclocking package** | `overclocking/README.md` | High-level orchestration: OC Scanner, profile comparison, safety validation, session management |
 
 ---
 
