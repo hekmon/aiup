@@ -207,7 +207,6 @@ const (
 	fnEnumGPUs     = 0xE5AC921F
 	fnVfGetStatus  = 0x21537AD4 // base hardware VF curve (no user offsets)
 	fnVfGetControl = 0x23F1B133 // user offsets (delta kHz per point)
-	fnVfSetControl = 0x0733E009 // set per-point frequency offset (write)
 )
 
 // ---------------------------------------------------------------------------
@@ -244,60 +243,6 @@ func ReadNvAPIVF(gpuIndex int) ([]VFPoint, error) {
 	}
 
 	return points, nil
-}
-
-// ---------------------------------------------------------------------------
-// Write functions (per-point V/F curve offset control)
-// ---------------------------------------------------------------------------
-
-// SetNvAPIVFPoint sets a frequency offset for a single V/F curve point on the specified GPU.
-//
-// This is a low-level write function that directly modifies the GPU's voltage-frequency
-// curve at a specific voltage point. Unlike NVML's global offset approach, this allows
-// fine-grained control over individual points on the curve.
-//
-// Parameters:
-//   - gpuIndex: GPU index (0-63)
-//   - pointIndex: V/F curve point index (0-127)
-//   - offsetKHz: frequency offset in kHz (signed, e.g., +50000 for +50 MHz)
-//
-// IMPORTANT - NVML Conflict:
-//
-// NvAPI SetControl and NVML's nvmlDeviceSetGpcClkVfOffset operate on the same underlying
-// hardware state and conflict with each other. When both are used:
-//   - NvAPI writes can clear NVML-applied offsets
-//   - The interaction is unpredictable
-//
-// Do NOT mix NvAPI per-point writes with NVML global offsets. Choose one approach:
-//   - NvAPI: Fine-grained per-point control (this function)
-//   - NVML: Simple global offset across entire curve
-//
-// Known limits (from RTX 5090 testing):
-//   - GPU core: ±1000 MHz (±1,000,000 kHz)
-//   - Memory: -1000/+3000 MHz (driver-dependent)
-//
-// The driver will reject out-of-range values, but these limits are provided for reference.
-//
-// Platform support:
-//   - Windows: nvapi64.dll
-//   - Linux: libnvidia-api.so.1
-//
-// Credit: Function discovered through LACT community reverse-engineering.
-// See: https://github.com/ilya-zlobintsev/LACT/issues/936
-func SetNvAPIVFPoint(gpuIndex, pointIndex, offsetKHz int) error {
-	// Auto-detect: Try Blackwell first (newer GPUs), then legacy
-	err := SetNvAPIVFPointBlackwell(gpuIndex, pointIndex, offsetKHz)
-	if err == nil {
-		return nil
-	}
-
-	// Blackwell failed, try legacy
-	err = SetNvAPIVFLegacy(gpuIndex, pointIndex, offsetKHz)
-	if err != nil {
-		return fmt.Errorf("NvAPI SetControl auto-detect failed (tried Blackwell and legacy): %w", err)
-	}
-
-	return nil
 }
 
 // ---------------------------------------------------------------------------
