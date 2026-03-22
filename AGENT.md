@@ -487,6 +487,8 @@ go test ./...     # Skip if no NVIDIA hardware
 
 **You cannot detect OC Scanner offsets from NvAPI alone.** The driver has already applied OC Scanner's math internally, so NvAPI reads back the modified curve as the "base" frequency.
 
+**To analyze OC Scanner configurations**, parse the hardware profile `.cfg` files using the `msiaf` package, which stores both `OCScannerRefMHz` and `OffsetMHz` separately.
+
 ---
 
 ## 5. FAN CURVE SERIALIZATION
@@ -535,11 +537,36 @@ The voltage-frequency curve (`VFCurve`) uses a binary format stored as a hex blo
 | **Header** | 12 bytes | `[version:uint32][count:uint32][reserved:float32=0.0]` |
 | **Per point** | 12 bytes | `[voltage:float32][oc_ref:float32][offset:float32]` |
 | **Inactive marker** | - | `oc_ref = 225.0` (stock behavior) |
-| **Applied frequency** | - | `HardwareBoost(v) + offset` (hardware boost is driver-private) |
+| **Applied frequency** | - | `OCScannerRef(v) + offset` (computed from blob data) |
 
 ### Key Design Principle
 
-The `.cfg` blob alone is **insufficient** to compute exact GPU frequencies. The `vfcurve.go` implementation **only exposes authoritative data** extracted from the binary blob (voltage, oc_ref, offset). Users needing actual frequencies must use runtime tools (nvidia-smi, NVML, NvAPI).
+The `.cfg` blob is **self-contained** and provides all data needed to compute applied frequencies. The formula is:
+
+```
+AppliedFreq(v) = OCScannerRefMHz(v) + OffsetMHz
+```
+
+Where:
+- `OCScannerRefMHz` = Cached OC Scanner reference from user's last benchmark run
+- `OffsetMHz` = User's frequency offset relative to that reference
+
+The `vfcurve.go` implementation exposes all three values (voltage, OCScannerRef, offset) directly on `VFPoint`. Computing applied frequencies is straightforward: `point.OCScannerRefMHz + point.OffsetMHz`.
+
+**Important distinction: Configured vs. Actual**
+
+| Source | What It Shows | Use Case |
+|--------|---------------|----------|
+| **`.cfg` file (msiaf)** | Configured values (what user set up) | Analyze profile settings, replicate configs |
+| **NvAPI runtime (nvvf)** | Actual values (what GPU is running) | Verify profile is applied, debug issues |
+
+The `.cfg` file tells you what the user *intended* to apply. To verify what's *actually running* on the GPU, you must read the live V-F curve via NvAPI (`nvvf` package). Discrepancies can occur if:
+- The profile hasn't been loaded yet
+- MSI Afterburner isn't running
+- Driver reset or system sleep occurred
+- Another tool modified the curve
+
+**Best practice:** Compare both sources to verify profiles are working correctly (see Section 4, "OC Scanner and Hardware Profile Behavior").
 
 ### Marshaling (Writing V-F Curves)
 
@@ -551,6 +578,19 @@ hexData, err := curve.Marshal()
 curve.ApplyFlatOffset(100)  // +100 MHz overclock
 curve.ApplyFlatOffset(-50)  // -50 MHz undervolt
 ```
+
+### Relationship to nvvf Package
+
+| Capability | `msiaf` (cfg parsing) | `nvvf` (NvAPI runtime) |
+|------------|----------------------|------------------------|
+| Read user's OC Scanner reference | ✅ Yes (from blob) | ❌ No (driver already applied it) |
+| Read user's frequency offset | ✅ Yes (from blob) | ⚠️ Only NvAPI SetControl offsets |
+| Compute applied frequency | ✅ `OCScannerRef + Offset` | ⚠️ `EffectiveMHz` only (no breakdown) |
+| Detect OC Scanner usage | ✅ Yes | ❌ No |
+| Show **configured** values | ✅ Yes | N/A |
+| Show **actual runtime** values | ❌ No | ✅ Yes |
+
+See `nvvf/README.md` for details on NvAPI's limitations with OC Scanner detection.
 
 ### Testing
 
