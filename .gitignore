@@ -40,3 +40,4 @@ go.work.sum
 /LocalProfiles
 /example
 /tmp/
+/source/*
