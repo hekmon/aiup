@@ -8,18 +8,6 @@ import (
 	"github.com/hekmon/aiup/overclocking/nvvf"
 )
 
-// VFPoint represents a single voltage-frequency point with all components explicit.
-// This structure is designed for AI agent consumption - all values are in MHz except voltage.
-//
-// Key insight: OffsetMHz is the CORE overclocking value that gets set/modified.
-// EffectiveFreqMHz = BaseFreqMHz + OffsetMHz
-type VFPoint struct {
-	VoltageMV        float64 `json:"voltage_mv"`         // Voltage point (e.g., 850.0 mV)
-	BaseFreqMHz      float64 `json:"base_freq_mhz"`      // Hardware base frequency at this voltage
-	OffsetMHz        float64 `json:"offset_mhz"`         // Overclock offset applied (THE CORE VALUE)
-	EffectiveFreqMHz float64 `json:"effective_freq_mhz"` // Resulting frequency = BaseFreqMHz + OffsetMHz
-}
-
 // SavedProfileInfo indicates which profile slot matches the current curve.
 // This is informational - helps the user decide where to save modifications.
 // All fields are JSON-serializable for MCP/API compatibility.
@@ -188,18 +176,21 @@ func extractVFCurve(hwProfile *msiaf.HardwareProfile, slotNum int) (*msiaf.VFCon
 // convertToVFPoints converts raw VFControlCurveInfo to user-friendly VFPoint slice.
 // Each VFPoint exposes: voltage, base frequency, offset, and effective frequency.
 func convertToVFPoints(curve *msiaf.VFControlCurveInfo) []VFPoint {
-	if curve == nil || len(curve.Points) == 0 {
+	if curve == nil {
+		return nil
+	}
+	if len(curve.Points) == 0 {
 		return []VFPoint{}
 	}
 
-	points := make([]VFPoint, 0, len(curve.Points))
-	for _, pt := range curve.Points {
-		points = append(points, VFPoint{
+	points := make([]VFPoint, len(curve.Points))
+	for i, pt := range curve.Points {
+		points[i] = VFPoint{
 			VoltageMV:        float64(pt.VoltageMV),
 			BaseFreqMHz:      float64(pt.BaseFreqMHz),
 			OffsetMHz:        float64(pt.OffsetMHz),
 			EffectiveFreqMHz: float64(pt.BaseFreqMHz + pt.OffsetMHz),
-		})
+		}
 	}
 
 	return points
