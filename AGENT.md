@@ -1043,6 +1043,7 @@ func main() {
 
 **Start of Session:**
 - [ ] Read this AGENT.md file
+- [ ] **Read package-specific README.md before working on any package** (e.g., `overclocking/nvvf/README.md` for nvvf package)
 - [ ] Understand the task requirements
 - [ ] Present plan to user before implementing
 
