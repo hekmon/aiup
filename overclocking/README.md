@@ -172,14 +172,14 @@ overclocking.exe -h
 
 ### Current Curve Detection ✅ IMPLEMENTED
 
-Reads the current V-F curve from a GPU and validates it matches the Startup profile.
+Reads the current V-F curve from a GPU and compares it against the Startup profile.
 
 **Purpose:** This function provides AI agents with the currently applied V-F curve, enabling them to:
 - Read current overclock offsets at each voltage point
-- Validate that the live GPU state matches the Startup profile
+- Check if the live GPU state matches the Startup profile (non-breaking validation)
 - Identify which profile slot (if any) the current curve originated from
 
-**Validation:** The function validates that the live V-F curve matches the Startup profile with 100% confidence. If not, it returns an error - this indicates the user has unsaved changes or the profile is not properly applied.
+**Validation:** The function compares the live V-F curve against the Startup profile and reports match status via `LiveMatchesStartup` field. It does **not** error on mismatch - the caller decides how to handle discrepancies (unsaved changes, corruption, wrong profile).
 
 **Profile Match Hint:** Additionally checks if the Startup curve matches any Profile1-5 slot. This is informational - it helps the user decide where to save modifications (e.g., "save back to Profile2" if that's where the current curve originated).
 
@@ -205,17 +205,18 @@ type SavedProfileInfo struct {
 
 // CurrentCurveResult contains the result of getting the current V-F curve.
 type CurrentCurveResult struct {
-    Points  []VFPoint         `json:"points"`  // All voltage points with offsets
-    Profile *SavedProfileInfo `json:"profile"` // Which slot matches (null if no match)
+    Points             []VFPoint         `json:"points"`               // All voltage points with offsets
+    Profile            *SavedProfileInfo `json:"profile"`              // Which saved profile slot matches (null if none)
+    LiveMatchesStartup bool              `json:"live_matches_startup"` // true if live curve matches Startup profile
 }
 ```
 
 **Key Functions:**
 
 ```go
-// GetCurrentCurve reads the current V-F curve and validates it matches Startup.
-// Additionally checks if Startup matches any saved profile slot (informational).
-func GetCurrentCurve(gpuIndex int, profilesDir string) (*CurrentCurveResult, error)
+// GetCurrentCurve reads the current V-F curve and compares it against the Startup profile.
+// The profilePath parameter comes from DiscoveryResult.GPUs[i].ProfilePath.
+func GetCurrentCurve(gpuIndex int, profilePath string) (*CurrentCurveResult, error)
 ```
 
 **Example Usage:**
@@ -223,10 +224,21 @@ func GetCurrentCurve(gpuIndex int, profilesDir string) (*CurrentCurveResult, err
 ```go
 import "github.com/hekmon/aiup/overclocking"
 
-// Get current V-F curve for GPU 0
-result, err := overclocking.GetCurrentCurve(0, profilesDir)
+// Step 1: Discover GPUs and their profile paths
+discovery, err := overclocking.ScanGPUs(profilesDir)
+if err != nil {
+    return fmt.Errorf("failed to scan GPUs: %w", err)
+}
+
+// Step 2: Get current V-F curve for GPU 0
+result, err := overclocking.GetCurrentCurve(0, discovery.GPUs[0].ProfilePath)
 if err != nil {
     return fmt.Errorf("failed to get current curve: %w", err)
+}
+
+// Check if live curve matches Startup (non-breaking validation)
+if !result.LiveMatchesStartup {
+    fmt.Println("Warning: Live curve differs from Startup profile (unsaved changes?)")
 }
 
 // Read current offsets
@@ -296,6 +308,19 @@ Enforces architecture-specific safety limits:
 ### Package Rules (CRITICAL)
 
 These rules apply to all code in the overclocking package:
+
+#### 0. MCP Function Design Rules
+
+**All exported functions are MCP entry points and must follow these rules:**
+
+| Rule | Requirement | Example |
+|------|-------------|---------|
+| Simple parameters | Only `int`, `string`, `bool`, slices | ✅ `func GetCurrentCurve(gpuIndex int, profilePath string)` |
+| JSON-serializable return | Struct with json tags + error | ✅ `(*CurrentCurveResult, error)` |
+| No complex input types | Don't require caller to construct structs | ❌ `func GetCurrentCurve(gpu *GPUInfo)` |
+| Non-breaking validation | Report issues in result, don't error | ✅ `LiveMatchesStartup: false` instead of `return nil, err` |
+
+**Rationale:** MCP clients can only pass simple JSON values. Complex types must be constructed internally or returned, never required as input.
 
 #### 1. JSON Serialization Required
 

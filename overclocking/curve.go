@@ -20,33 +20,45 @@ type SavedProfileInfo struct {
 // CurrentCurveResult contains the result of getting the current V-F curve.
 // All fields are JSON-serializable for MCP/API compatibility.
 type CurrentCurveResult struct {
-	Points  []VFPoint         `json:"points"`  // All voltage points with offsets
-	Profile *SavedProfileInfo `json:"profile"` // Which slot matches (null if no match)
+	LiveMatchesStartup bool              `json:"live_matches_startup"` // true if live curve matches Startup profile
+	Profile            *SavedProfileInfo `json:"profile"`              // Which saved profile slot matches (null if none)
+	Points             []VFPoint         `json:"points"`               // All voltage points with offsets
 }
 
-// GetCurrentCurve reads the current V-F curve from the GPU and validates it matches Startup.
-// Additionally checks if Startup matches any saved profile slot (informational for save operations).
+// GetCurrentCurve reads the current V-F curve from the GPU and compares it against the Startup profile.
 //
 // This function:
 //  1. Reads the live V-F curve from the GPU via NvAPI
-//  2. Loads the hardware profile from MSI Afterburner Profiles directory
-//  3. Validates that live curve matches Startup profile (error if not - this should not happen)
+//  2. Loads the hardware profile from the specified profile file path
+//  3. Compares live curve against Startup profile (reports match status, does not error on mismatch)
 //  4. Returns the Startup V-F curve (currently applied)
 //  5. Additionally checks if Startup matches Profile1-5 (informational for save operations)
 //
 // Parameters:
 //   - gpuIndex: NvAPI GPU index (0, 1, 2, ...)
-//   - profilesDir: Path to MSI Afterburner Profiles directory
+//   - profilePath: Path to the hardware profile .cfg file (from DiscoveryResult.GPUs[i].ProfilePath)
 //
 // Returns:
-//   - result: CurrentCurveResult with V-F curve points and optional profile match info
-//   - error: If live doesn't match Startup, or other errors
+//   - result: CurrentCurveResult with V-F curve points, profile match info, and live match status
+//   - error: Only for actual errors (file read failures, NvAPI errors, etc.)
 //
 // Example usage:
 //
-//	result, err := GetCurrentCurve(0, `C:\Program Files (x86)\MSI Afterburner\Profiles`)
+//	// First, discover GPUs and their profile paths
+//	discovery, err := overclocking.ScanGPUs(profilesDir)
+//	if err != nil {
+//	    return err
+//	}
+//
+//	// Get current curve for GPU 0 using its profile path
+//	result, err := overclocking.GetCurrentCurve(0, discovery.GPUs[0].ProfilePath)
 //	if err != nil {
 //	    return fmt.Errorf("failed to get current curve: %w", err)
+//	}
+//
+//	// Check if live curve matches Startup
+//	if !result.LiveMatchesStartup {
+//	    fmt.Println("Warning: Live curve differs from Startup profile (unsaved changes?)")
 //	}
 //
 //	// Modify the curve
@@ -58,29 +70,11 @@ type CurrentCurveResult struct {
 //	} else {
 //	    fmt.Println("Current curve is unique - save to any slot")
 //	}
-func GetCurrentCurve(gpuIndex int, profilesDir string) (*CurrentCurveResult, error) {
-	// Step 1: Perform GPU discovery to get profile paths
-	discovery, err := ScanGPUs(profilesDir)
+func GetCurrentCurve(gpuIndex int, profilePath string) (*CurrentCurveResult, error) {
+	// Step 1: Load hardware profile from disk
+	hwProfile, err := msiaf.ParseHardwareProfile(profilePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to scan profiles directory: %w", err)
-	}
-
-	// Step 2: Find the GPU by index in discovery result
-	var gpuInfo *GPUInfo
-	for i := range discovery.GPUs {
-		if discovery.GPUs[i].Index == gpuIndex {
-			gpuInfo = &discovery.GPUs[i]
-			break
-		}
-	}
-	if gpuInfo == nil {
-		return nil, fmt.Errorf("GPU index %d not found in discovery result", gpuIndex)
-	}
-
-	// Step 3: Load hardware profile from disk
-	hwProfile, err := msiaf.ParseHardwareProfile(gpuInfo.ProfilePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load hardware profile %s: %w", gpuInfo.ProfilePath, err)
+		return nil, fmt.Errorf("failed to load hardware profile %s: %w", profilePath, err)
 	}
 
 	// Step 4: Read live V-F curve from GPU via NvAPI
@@ -102,12 +96,10 @@ func GetCurrentCurve(gpuIndex int, profilesDir string) (*CurrentCurveResult, err
 		return nil, fmt.Errorf("failed to match profiles against live curve: %w", err)
 	}
 
-	// Step 7: CRITICAL - Verify Startup (slot 0) matches live data
-	// This should always be true - if not, something is fundamentally wrong
+	// Step 7: Check if Startup (slot 0) matches live data
+	// This is informational - caller decides how to handle mismatch
 	startupResult := matchResults[0]
-	if !startupResult.IsMatch(1.0) {
-		return nil, fmt.Errorf("live V-F curve does not match Startup profile (%.0f%% confidence) - this should not happen, user may have unsaved changes", startupResult.MatchConfidence*100)
-	}
+	liveMatchesStartup := startupResult.IsMatch(1.0)
 
 	// Step 8: Extract Startup V-F curve (slot 0)
 	vfCurveRaw, err := extractVFCurve(hwProfile, 0)
@@ -135,8 +127,9 @@ func GetCurrentCurve(gpuIndex int, profilesDir string) (*CurrentCurveResult, err
 	}
 
 	return &CurrentCurveResult{
-		Points:  points,
-		Profile: savedProfile,
+		Points:             points,
+		Profile:            savedProfile,
+		LiveMatchesStartup: liveMatchesStartup,
 	}, nil
 }
 
