@@ -12,7 +12,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/hekmon/aiup/msiaf"
+	"github.com/hekmon/aiup/overclocking/msiaf"
 )
 
 func main() {

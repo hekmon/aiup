@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/hekmon/aiup/msiaf"
-	"github.com/hekmon/aiup/nvvf"
+	"github.com/hekmon/aiup/overclocking/msiaf"
+	"github.com/hekmon/aiup/overclocking/nvvf"
 )
 
 // GPUInfo contains complete information about a detected NVIDIA GPU with its MSI Afterburner profile.

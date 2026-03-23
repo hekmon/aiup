@@ -2,7 +2,7 @@
 
 **Purpose:** Read this at the start of each session. This document tells you how to work on this project.
 
-**Last Updated:** Current session - Full restructure for AI agent optimization
+**Last Updated:** Current session - msiaf and nvvf moved under overclocking/
 
 ---
 
@@ -12,33 +12,33 @@
 
 | Task | Command | Location |
 |------|---------|----------|
-| Regenerate GPU catalog | `go generate ./msiaf/...` | Project root |
+| Regenerate GPU catalog | `go generate ./overclocking/msiaf/...` | Project root |
 | Run all pre-commit checks | `go generate ./... && go build ./... && go test ./... && go vet ./...` | Project root |
 | Create temp experiment | `mkdir -p tmp/<name>` | Project root |
 | Clean up experiments | `rm -rf tmp/` | After implementation |
-| Lookup device ID | Check `msiaf/catalog/catalog_generated.go` | Or run `go generate` |
+| Lookup device ID | Check `overclocking/msiaf/catalog/catalog_generated.go` | Or run `go generate` |
 
 ### Decision Tree: Where Does My Code Go?
 
 ```
 What are you building?
 │
-├── Finding/listing files?          → msiaf/scan.go
-├── Parsing MSIAfterburner.cfg?     → msiaf/globalconfig.go
-├── Parsing hardware profile .cfg?  → msiaf/profile.go
-├── Fan curve binary format?        → msiaf/fancurve.go
-├── V-F curve binary format?        → msiaf/vfcurve.go
-├── Profile matching/detection?     → msiaf/active.go
-├── Writing profiles?               → msiaf/profile.go (Save methods)
-├── New binary format?              → msiaf/<format>.go (new file)
-├── GPU manufacturer lookups?       → msiaf/catalog/ (hand-written)
-├── GPU data table?                 → msiaf/catalog_generated.go (auto-generated)
-├── GPU discovery?                    → overclocking/discovery.go
-├── OC Scanner workflow?              → overclocking/ (see README.md)
-├── Profile comparison/diffing?       → overclocking/ (see README.md)
-├── Safety validation?                → overclocking/ (see README.md)
-├── Session management?               → overclocking/ (see README.md)
-├── High-level orchestration?         → overclocking/ (combines msiaf + nvvf)
+├── Finding/listing files?          → overclocking/msiaf/scan.go
+├── Parsing MSIAfterburner.cfg?     → overclocking/msiaf/globalconfig.go
+├── Parsing hardware profile .cfg?  → overclocking/msiaf/profile.go
+├── Fan curve binary format?        → overclocking/msiaf/fancurve.go
+├── V-F curve binary format?        → overclocking/msiaf/vfcurve.go
+├── Profile matching/detection?     → overclocking/msiaf/active.go
+├── Writing profiles?               → overclocking/msiaf/profile.go (Save methods)
+├── New binary format?              → overclocking/msiaf/<format>.go (new file)
+├── GPU manufacturer lookups?       → overclocking/msiaf/catalog/ (hand-written)
+├── GPU data table?                 → overclocking/msiaf/catalog/catalog_generated.go (auto-generated)
+├── GPU discovery?                  → overclocking/discovery.go
+├── OC Scanner workflow?            → overclocking/ (see README.md)
+├── Profile comparison/diffing?     → overclocking/ (see README.md)
+├── Safety validation?              → overclocking/ (see README.md)
+├── Session management?             → overclocking/ (see README.md)
+├── High-level orchestration?       → overclocking/ (combines msiaf + nvvf)
 ├── Combining multiple sources?     → Method on existing type in root package
 ├── Thin wrapper around subpackage? → DON'T DO IT
 └── Utility/helper function?        → Method on the type users already have
@@ -52,7 +52,7 @@ What are you building?
 | Unsure about struct fields | Parse everything during parsing, no lazy methods |
 | Adding a helper function | Make it a method on the type users already manipulate |
 | Found bug in generated code | Fix the generator (`cmd/gencatalog/`), not the output |
-| Tests fail with "unknown GPU" | Run `go generate ./msiaf/...` first |
+| Tests fail with "unknown GPU" | Run `go generate ./overclocking/msiaf/...` first |
 | Unclear file organization | Follow "new scopes deserve new files" principle |
 | Need to move files | Update `//go:generate` paths, regenerate, verify |
 | Adding new config field | Add to struct, parse during initial parse, use appropriate Go type |
@@ -137,23 +137,46 @@ At the end of successful sessions (everything builds, tests pass, stable conclus
 ├── README.md                   # Project documentation (end-user, to be written)
 ├── go.mod, go.sum              # Go module definition
 │
-├── msiaf/                      # Main package - MSI Afterburner parsing
-│   ├── scan.go                 # HardwareProfileInfo, Scan(), file discovery
-│   ├── scan_test.go
-│   ├── active.go               # Profile matching (detect active profile)
-│   ├── active_test.go          # Profile matching tests
-│   ├── globalconfig.go         # Settings struct, ParseGlobalConfig()
-│   ├── globalconfig_test.go
-│   ├── profile.go              # HardwareProfile struct, parsing + writing
-│   ├── profile_test.go
-│   ├── fancurve.go             # Fan curve binary deserialization
-│   ├── fancurve_test.go
-│   ├── vfcurve.go              # V-F curve binary deserialization + marshaling
-│   ├── vfcurve_test.go
-│   └── catalog/                # GPU lookup subpackage
-│       ├── catalog.go          # LookupGPU(), LookupManufacturer() (hand-written)
-│       ├── catalog_generated.go # GPU data table (DO NOT EDIT - auto-generated)
-│       └── catalog_test.go
+├── overclocking/               # High-level overclocking orchestration
+│   ├── README.md               # Complete API documentation and package rules
+│   ├── discovery.go            # GPU discovery (ScanGPUs, GPUInfo, DiscoveryResult) ✅
+│   ├── status.go               # Current curve detection ✅
+│   ├── session.go              # Session management
+│   ├── scanner.go              # OC Scanner integration
+│   ├── profile.go              # Profile comparison and diffing
+│   ├── safety.go               # Safety limits and validation
+│   │
+│   ├── msiaf/                  # MSI Afterburner parsing (moved from root)
+│   │   ├── scan.go             # HardwareProfileInfo, Scan(), file discovery
+│   │   ├── scan_test.go
+│   │   ├── active.go           # Profile matching (detect active profile)
+│   │   ├── active_test.go      # Profile matching tests
+│   │   ├── globalconfig.go     # Settings struct, ParseGlobalConfig()
+│   │   ├── globalconfig_test.go
+│   │   ├── profile.go          # HardwareProfile struct, parsing + writing
+│   │   ├── profile_test.go
+│   │   ├── fancurve.go         # Fan curve binary deserialization
+│   │   ├── fancurve_test.go
+│   │   ├── vfcurve.go          # V-F curve binary deserialization + marshaling
+│   │   ├── vfcurve_test.go
+│   │   └── catalog/            # GPU lookup subpackage
+│   │       ├── catalog.go          # LookupGPU(), LookupManufacturer() (hand-written)
+│   │       ├── catalog_generated.go # GPU data table (DO NOT EDIT - auto-generated)
+│   │       └── catalog_test.go
+│   │
+│   └── nvvf/                   # Cross-platform NvAPI access (moved from root)
+│       ├── README.md           # Complete API documentation and technical details
+│       ├── nvvf.go             # VFPoint, ClkDomain types, helpers, ReadNvAPIVF()
+│       ├── vf.go               # V-F curve structs and parsers
+│       ├── vf_windows.go       # Windows V-F implementations
+│       ├── vf_linux.go         # Linux V-F implementations
+│       ├── clkdomains.go       # ClkDomainInfo struct
+│       ├── clkdomains_windows.go # Windows clock domain implementation
+│       ├── clkdomains_linux.go # Linux clock domain implementation
+│       ├── gpuname.go          # indexOfByte() helper
+│       ├── gpuname_windows.go  # Windows GetGPUName() implementation
+│       ├── gpuname_linux.go    # Linux GetGPUName() implementation
+│       └── nvapi_linux.go      # Linux NvAPI loading helpers (cgo)
 │
 ├── cmd/
 │   ├── active/                 # Windows-only: Match profiles against live V-F curve
@@ -162,30 +185,13 @@ At the end of successful sessions (everything builds, tests pass, stable conclus
 │   │   └── main.go             # Fetches pci-ids, generates catalog_generated.go
 │   ├── msiaf/                  # Example: Pure msiaf package usage
 │   │   └── main.go             # Scan profiles, parse configs (no hardware required)
-│   └── nvvf/                   # Example: Live V-F curve reading
-│       └── main.go             # Read NVIDIA GPU V-F data via NvAPI (requires GPU)
+│   ├── nvvf/                   # Example: Live V-F curve reading
+│   │   └── main.go             # Read NVIDIA GPU V-F data via NvAPI (requires GPU)
+│   └── overclocking/           # Example: High-level orchestration
+│       └── main.go
 │
 ├── LocalProfiles/              # Test data (gitignored)
 │   └── *.cfg                   # Hardware profile files
-│
-├── nvvf/                       # Cross-platform NvAPI access (V-F curves, GPU names, clock domains)
-│   ├── README.md               # Complete API documentation and technical details
-│   ├── nvvf.go                 # VFPoint, ClkDomain types, helpers, ReadNvAPIVF()
-│   ├── vf.go                   # V-F curve structs and parsers
-│   ├── vf_windows.go           # Windows V-F implementations
-│   ├── vf_linux.go             # Linux V-F implementations
-│   ├── clkdomains.go           # ClkDomainInfo struct
-│   ├── clkdomains_windows.go   # Windows clock domain implementation
-│   ├── clkdomains_linux.go     # Linux clock domain implementation
-│   ├── gpuname.go              # indexOfByte() helper
-│   ├── gpuname_windows.go      # Windows GetGPUName() implementation
-│   ├── gpuname_linux.go        # Linux GetGPUName() implementation
-│   └── nvapi_linux.go          # Linux NvAPI loading helpers (cgo)
-│
-├── overclocking/               # High-level overclocking orchestration (combines msiaf + nvvf)
-│   ├── README.md               # Complete API documentation and package rules
-│   ├── discovery.go            # GPU discovery (ScanGPUs, GPUInfo, DiscoveryResult) ✅
-│   └── discovery_test.go       # Unit tests for discovery ✅
 │
 └── tmp/                        # Temporary experiment tools (gitignored)
     └── <experiment_name>/      # Remove after implementation complete
@@ -214,9 +220,9 @@ At the end of successful sessions (everything builds, tests pass, stable conclus
 
 | Package | Purpose | Import Path |
 |---------|---------|-------------|
-| `msiaf` (root) | Scanning, config parsing, value-added methods on types | `github.com/hekmon/aiup/msiaf` |
-| `msiaf/catalog` | Pure GPU/manufacturer lookup functions | `github.com/hekmon/aiup/msiaf/catalog` |
-| `nvvf` | Cross-platform NvAPI access: V-F curves, GPU marketing names, clock domain ranges | `github.com/hekmon/aiup/nvvf` |
+| `overclocking/msiaf` | Scanning, config parsing, value-added methods on types | `github.com/hekmon/aiup/overclocking/msiaf` |
+| `overclocking/msiaf/catalog` | Pure GPU/manufacturer lookup functions | `github.com/hekmon/aiup/overclocking/msiaf/catalog` |
+| `overclocking/nvvf` | Cross-platform NvAPI access: V-F curves, GPU marketing names, clock domain ranges | `github.com/hekmon/aiup/overclocking/nvvf` |
 | `overclocking` | High-level orchestration: GPU discovery ✅, OC Scanner, profile comparison, safety validation, session management (see README.md) | `github.com/hekmon/aiup/overclocking` |
 | `cmd/gencatalog` | Generator tool (not importable) | N/A |
 
@@ -255,20 +261,20 @@ At the end of successful sessions (everything builds, tests pass, stable conclus
 
 ```
 ✅ ALLOWED:
-- overclocking → msiaf (import)
-- overclocking → nvvf (import)
+- overclocking → overclocking/msiaf (import)
+- overclocking → overclocking/nvvf (import)
 - cmd/* → any package (import)
-- msiaf/catalog → (no internal dependencies)
+- overclocking/msiaf/catalog → (no internal dependencies)
 
 ❌ FORBIDDEN:
-- msiaf → nvvf (no cross-dependency between low-level packages)
-- nvvf → msiaf (no cross-dependency between low-level packages)
-- msiaf → overclocking (no circular dependencies)
-- nvvf → overclocking (no circular dependencies)
-- overclocking → exposes msiaf/nvvf types in public API (leaky abstraction)
+- overclocking/msiaf → overclocking/nvvf (no cross-dependency between low-level packages)
+- overclocking/nvvf → overclocking/msiaf (no cross-dependency between low-level packages)
+- overclocking/msiaf → overclocking (no circular dependencies)
+- overclocking/nvvf → overclocking (no circular dependencies)
+- overclocking → exposes overclocking/msiaf or overclocking/nvvf types in public API (leaky abstraction)
 ```
 
-**Test:** If a user of `overclocking` needs to import `msiaf` or `nvvf` to understand the API, the abstraction is leaking.
+**Test:** If a user of `overclocking` needs to import `overclocking/msiaf` or `overclocking/nvvf` to understand the API, the abstraction is leaking.
 
 ---
 
@@ -333,7 +339,7 @@ ls /mnt/c 2>/dev/null && echo "WSL" || echo "Native Linux or Windows"
 mkdir -p tmp/readvf
 cd tmp/readvf
 
-# 2. Write your Go code (imports github.com/hekmon/aiup/nvvf)
+# 2. Write your Go code (imports github.com/hekmon/aiup/overclocking/nvvf)
 # The nvvf package will use Windows syscalls when built for Windows
 
 # 3. Build for Windows (critical step!)
@@ -421,7 +427,7 @@ package main
 
 import (
     "fmt"
-    "github.com/hekmon/aiup/nvvf"
+    "github.com/hekmon/aiup/overclocking/nvvf"
 )
 
 func main() {
@@ -701,7 +707,7 @@ When investigating unknown formats:
 
 **Example at 850 mV with OC Scanner applied:**
 
-| .cfg file (msiaf) | NvAPI (nvvf) |
+| .cfg file (overclocking/msiaf) | NvAPI (overclocking/nvvf) |
 |-------------------|--------------|
 | Voltage: 850 mV | Voltage: 850 mV |
 | OC Ref: 1365 MHz (f2) | BaseFreqMHz: 2317 MHz |
@@ -711,12 +717,12 @@ When investigating unknown formats:
 **Key Takeaways:**
 1. OC Scanner profiles ARE applied correctly - NvAPI shows the final result
 2. OffsetMHz = 0 is expected - OC Scanner doesn't use NvAPI SetControl
-3. To see OC Scanner offsets, parse .cfg files with the `msiaf` package
+3. To see OC Scanner offsets, parse .cfg files with the `overclocking/msiaf` package
 4. To verify OC Scanner is working, compare EffectiveMHz from both sources
 
 **You cannot detect OC Scanner offsets from NvAPI alone.** The driver has already applied OC Scanner's math internally, so NvAPI reads back the modified curve as the "base" frequency.
 
-**For complete technical details:** See [`nvvf/README.md`](nvvf/README.md) section "OC Scanner and Hardware Profile Behavior".
+**For complete technical details:** See [`overclocking/nvvf/README.md`](overclocking/nvvf/README.md) section "OC Scanner and Hardware Profile Behavior".
 
 ---
 
@@ -800,17 +806,17 @@ Hardware profile files contain GPU-specific overclocking and fan settings.
 
 | Topic | Authoritative Source | What You'll Find |
 |-------|---------------------|------------------|
-| **Fan curve binary format** | `msiaf/fancurve.go#L1-80` | Complete 256-byte binary spec, validation rules, error types, temperature/fan speed ranges |
-| **V-F curve binary format** | `msiaf/vfcurve.go#L1-110` | Version 2.0 spec, header/triplet layout, inactive markers, authoritative data principle |
-| **Hardware profile parsing** | `msiaf/profile.go` | Section parsing ([Startup], [Profile1-5], etc.), pointer field semantics, Save/SaveAs methods |
-| **Global config parsing** | `msiaf/globalconfig.go` | Settings struct with all fields, type conversions (time.Duration, bool, hex blobs) |
-| **Scanning profiles** | `msiaf/scan.go` | File discovery, HardwareProfileInfo struct, Scan() function |
-| **Profile matching** | `msiaf/active.go` | MatchVFCurve(), MatchProfileAgainstLive(), FindBestMatch(), ProfileMatchResult type |
-| **GPU catalog lookup** | `msiaf/catalog/catalog.go` | LookupGPU(), LookupManufacturer(), GetFullGPUDescription() |
-| **Cross-platform NVAPI** | `nvvf/README.md` | V-F curves, GPU names, clock domains, API reference, struct layouts, OC Scanner behavior |
-| **NVAPI implementation** | `nvvf/nvvf.go` | Shared types, VFPoint struct, parsers, ReadNvAPIVF() auto-detect |
-| **Windows NVAPI** | `nvvf/nvvf_windows.go` | syscall.LoadDLL(), syscall.SyscallN() implementation |
-| **Linux NVAPI** | `nvvf/nvvf_linux.go` | cgo dlopen/dlsym implementation |
+| **Fan curve binary format** | `overclocking/msiaf/fancurve.go#L1-80` | Complete 256-byte binary spec, validation rules, error types, temperature/fan speed ranges |
+| **V-F curve binary format** | `overclocking/msiaf/vfcurve.go#L1-110` | Version 2.0 spec, header/triplet layout, inactive markers, authoritative data principle |
+| **Hardware profile parsing** | `overclocking/msiaf/profile.go` | Section parsing ([Startup], [Profile1-5], etc.), pointer field semantics, Save/SaveAs methods |
+| **Global config parsing** | `overclocking/msiaf/globalconfig.go` | Settings struct with all fields, type conversions (time.Duration, bool, hex blobs) |
+| **Scanning profiles** | `overclocking/msiaf/scan.go` | File discovery, HardwareProfileInfo struct, Scan() function |
+| **Profile matching** | `overclocking/msiaf/active.go` | MatchVFCurve(), MatchProfileAgainstLive(), FindBestMatch(), ProfileMatchResult type |
+| **GPU catalog lookup** | `overclocking/msiaf/catalog/catalog.go` | LookupGPU(), LookupManufacturer(), GetFullGPUDescription() |
+| **Cross-platform NVAPI** | `overclocking/nvvf/README.md` | V-F curves, GPU names, clock domains, API reference, struct layouts, OC Scanner behavior |
+| **NVAPI implementation** | `overclocking/nvvf/nvvf.go` | Shared types, VFPoint struct, parsers, ReadNvAPIVF() auto-detect |
+| **Windows NVAPI** | `overclocking/nvvf/nvvf_windows.go` | syscall.LoadDLL(), syscall.SyscallN() implementation |
+| **Linux NVAPI** | `overclocking/nvvf/nvvf_linux.go` | cgo dlopen/dlsym implementation |
 | **Catalog generation** | `cmd/gencatalog/main.go` | pci-ids fetching, filtering, Go code generation |
 | **Overclocking package** | `overclocking/README.md` | High-level orchestration: OC Scanner, profile comparison, safety validation, session management |
 
@@ -835,13 +841,13 @@ sb.WriteString(fmt.Sprintf("\t\"%s\": {Vendor: \"%s\", GPU: \"%s\"},\n", key, en
 When moving files with `//go:generate` directives, **update the path** to account for directory depth:
 
 ```go
-//go:generate go run ../../cmd/gencatalog/main.go
+//go:generate go run ../../../cmd/gencatalog/main.go
 ```
 
 | Location | Path | Levels Up |
 |----------|------|-----------|
-| From `msiaf/catalog/catalog.go` | `../../cmd/gencatalog/main.go` | 2 levels |
-| From `msiaf/scan.go` | `../cmd/gencatalog/main.go` | 1 level |
+| From `overclocking/msiaf/catalog/catalog.go` | `../../../cmd/gencatalog/main.go` | 3 levels |
+| From `overclocking/msiaf/scan.go` | `../../cmd/gencatalog/main.go` | 2 levels |
 
 **Note:** The generator writes to the **current directory**, so run it from the correct location.
 
@@ -885,7 +891,7 @@ package main
 
 import (
     "fmt"
-    "github.com/hekmon/aiup/msiaf"
+    "github.com/hekmon/aiup/overclocking/msiaf"
 )
 
 func main() {
@@ -913,7 +919,7 @@ package main
 
 import (
     "fmt"
-    "github.com/hekmon/aiup/msiaf/catalog"
+    "github.com/hekmon/aiup/overclocking/msiaf/catalog"
 )
 
 func main() {
@@ -941,8 +947,8 @@ package main
 
 import (
     "fmt"
-    "github.com/hekmon/aiup/msiaf"
-    "github.com/hekmon/aiup/nvvf"
+    "github.com/hekmon/aiup/overclocking/msiaf"
+    "github.com/hekmon/aiup/overclocking/nvvf"
 )
 
 func main() {

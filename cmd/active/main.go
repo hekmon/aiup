@@ -34,8 +34,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/hekmon/aiup/msiaf"
-	"github.com/hekmon/aiup/nvvf"
+	"github.com/hekmon/aiup/overclocking/msiaf"
+	"github.com/hekmon/aiup/overclocking/nvvf"
 )
 
 func main() {

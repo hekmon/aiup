@@ -4,8 +4,8 @@ package overclocking
 import (
 	"fmt"
 
-	"github.com/hekmon/aiup/msiaf"
-	"github.com/hekmon/aiup/nvvf"
+	"github.com/hekmon/aiup/overclocking/msiaf"
+	"github.com/hekmon/aiup/overclocking/nvvf"
 )
 
 // VFPoint represents a single voltage-frequency point with all components explicit.

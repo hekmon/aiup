@@ -31,7 +31,7 @@ func TestSettings_GetFanControlCurve(t *testing.T) {
 // TestParseGlobalConfig_FanCurves tests fan curve parsing from actual config file.
 // This integration test verifies the complete config parsing pipeline.
 func TestParseGlobalConfig_FanCurves(t *testing.T) {
-	config, err := ParseGlobalConfig("../LocalProfiles/MSIAfterburner.cfg")
+	config, err := ParseGlobalConfig("../../LocalProfiles/MSIAfterburner.cfg")
 	if err != nil {
 		t.Fatalf("Failed to parse config: %v", err)
 	}

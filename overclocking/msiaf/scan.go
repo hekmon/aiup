@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/hekmon/aiup/msiaf/catalog"
+	"github.com/hekmon/aiup/overclocking/msiaf/catalog"
 )
 
 // GlobalConfigFile is the name of the global MSI Afterburner configuration file.

@@ -1,4 +1,4 @@
-//go:generate go run ../../cmd/gencatalog/main.go
+//go:generate go run ../../../cmd/gencatalog/main.go
 
 package catalog
 

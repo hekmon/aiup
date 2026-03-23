@@ -1,7 +1,7 @@
 // nvvf - NVIDIA V-F Curve Command-Line Tool
 //
 // This is the CLI tool for reading NVIDIA GPU voltage-frequency (V-F) curves.
-// For the Go package API, see github.com/hekmon/aiup/nvvf.
+// For the Go package API, see github.com/hekmon/aiup/overclocking/nvvf.
 //
 // # PLATFORM SUPPORT
 //
@@ -72,7 +72,7 @@
 // # RELATED
 //
 // For MSI Afterburner .cfg file parsing, see the msiaf package.
-// For Go package API documentation, see https://github.com/hekmon/aiup/nvvf
+// For Go package API documentation, see https://github.com/hekmon/aiup/overclocking/nvvf
 package main
 
 import (
@@ -81,7 +81,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hekmon/aiup/nvvf"
+	"github.com/hekmon/aiup/overclocking/nvvf"
 )
 
 func main() {
@@ -203,9 +203,9 @@ Credits & Attribution:
   V-F curve functions made this implementation possible. Special thanks to the
   open-source GPU tools community for sharing knowledge.
 
-For MSI Afterburner .cfg parsing, see the msiaf package.
-For Go package API documentation, see: https://github.com/hekmon/aiup/nvvf
-For package README with technical details, see: nvvf/README.md`)
+For MSI Afterburner .cfg file parsing, see the msiaf package.
+For Go package API documentation, see: https://github.com/hekmon/aiup/overclocking/nvvf
+For package README with technical details, see: overclocking/nvvf/README.md`)
 }
 
 // listAvailableGPUs enumerates and lists all NVIDIA GPUs

@@ -150,7 +150,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("Successfully generated msiaf/catalog_generated.go with %d GPU entries\n", len(gpuCatalog))
+	fmt.Printf("Successfully generated overclocking/msiaf/catalog/catalog_generated.go with %d GPU entries\n", len(gpuCatalog))
 }
 
 // parsePCIIDs reads the pci.ids file and extracts vendors and devices
