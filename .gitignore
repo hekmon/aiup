@@ -8,6 +8,12 @@
 *.so
 *.dylib
 
+# Built binaries (from cmd/ directory when built at root)
+/msiaf
+/nvvf
+/active
+
+
 # Test binary, built with `go test -c`
 *.test
 

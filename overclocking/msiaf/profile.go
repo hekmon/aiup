@@ -2,10 +2,52 @@
 package msiaf
 
 import (
+	"encoding/hex"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 )
+
+// OffsetMode represents how a V-F curve offset is configured in a profile.
+type OffsetMode int
+
+const (
+	// OffsetModeUnknown indicates the offset mode could not be determined.
+	OffsetModeUnknown OffsetMode = iota
+
+	// OffsetModeFixedOffset indicates a uniform offset applied to all V-F points
+	// (typically set via the Core (MHz) slider in MSI Afterburner UI).
+	// CoreClkBoost field contains the offset value in kHz.
+	OffsetModeFixedOffset
+
+	// OffsetModeCustomCurve indicates individual offsets per V-F point
+	// (typically set via the Curve Editor in MSI Afterburner UI).
+	// CoreClkBoost field is set to 1000000 kHz (default/max value).
+	OffsetModeCustomCurve
+
+	// OffsetModeInvalid indicates an inconsistent state where CoreClkBoost
+	// suggests fixed offset but V-F curve points have varying offsets.
+	OffsetModeInvalid
+
+	// coreClkBoostCustomCurveValue is the value MSI Afterburner sets when
+	// using the curve editor (1000000 kHz = 1000 MHz).
+	coreClkBoostCustomCurveValue = 1000000
+)
+
+// String returns a human-readable description of the offset mode.
+func (m OffsetMode) String() string {
+	switch m {
+	case OffsetModeFixedOffset:
+		return "Fixed Offset (slider mode)"
+	case OffsetModeCustomCurve:
+		return "Custom Curve (curve editor)"
+	case OffsetModeInvalid:
+		return "Invalid (inconsistent state)"
+	default:
+		return "Unknown"
+	}
+}
 
 // HardwareProfile represents a fully parsed hardware-specific .cfg file.
 type HardwareProfile struct {
@@ -51,6 +93,117 @@ type ProfileSlot struct {
 	ProfileSection
 	SlotNumber int  // 1-5
 	IsEmpty    bool // true if section is missing or all fields empty
+}
+
+// GetOffsetMode detects whether the profile uses fixed offset (slider mode)
+// or custom curve (curve editor mode) by analyzing CoreClkBoost and V-F curve data.
+//
+// Detection logic:
+//   - CoreClkBoost == 1000000 kHz → Custom Curve mode
+//   - CoreClkBoost != 1000000 kHz → Fixed Offset mode (value = uniform offset)
+//   - Mismatch between CoreClkBoost and V-F curve → Invalid state
+//
+// Returns:
+//   - OffsetModeFixedOffset: All V-F points have uniform offset (any value, even +1000 MHz)
+//   - OffsetModeCustomCurve: V-F points have varying offsets per voltage point
+//   - OffsetModeInvalid: Unable to parse V-F curve or other errors
+//   - OffsetModeUnknown: Missing CoreClkBoost or VFCurve data
+//
+// Note: CoreClkBoost = 1000000 kHz is used as a marker for custom curve mode,
+// but the V-F curve is always checked to handle the edge case where a user
+// sets a fixed offset of exactly +1000 MHz via the slider.
+func (ps *ProfileSection) GetOffsetMode() OffsetMode {
+	// Check if we have the necessary data
+	if ps.CoreClkBoost == nil || len(ps.VFCurve) == 0 {
+		return OffsetModeUnknown
+	}
+
+	// Parse V-F curve to analyze offset pattern
+	hexStr := hex.EncodeToString(ps.VFCurve)
+	curve, err := UnmarshalVFControlCurve(hexStr)
+	if err != nil {
+		return OffsetModeInvalid
+	}
+
+	// Collect offsets from all active points
+	var offsets []float64
+	for _, point := range curve.Points {
+		if point.IsActive {
+			offsets = append(offsets, float64(point.OffsetMHz))
+		}
+	}
+
+	// Need at least one active point
+	if len(offsets) == 0 {
+		return OffsetModeUnknown
+	}
+
+	// Check if all offsets are uniform (within tolerance)
+	const toleranceMHz = 1.0 // Allow 1 MHz tolerance for floating point precision
+	firstOffset := offsets[0]
+	isUniform := true
+
+	for _, offset := range offsets[1:] {
+		if math.Abs(offset-firstOffset) > toleranceMHz {
+			isUniform = false
+			break
+		}
+	}
+
+	if isUniform {
+		return OffsetModeFixedOffset
+	}
+	return OffsetModeCustomCurve
+}
+
+// GetFixedOffset returns the fixed offset value in MHz if the profile uses
+// fixed offset mode. Returns 0, false if not in fixed offset mode.
+//
+// This method extracts the offset from the V-F curve when CoreClkBoost is at
+// the marker value (1000000 kHz), ensuring correct detection even for +1000 MHz
+// fixed offsets set via the slider.
+//
+// Example:
+//
+//	offset, ok := profile.Startup.GetFixedOffset()
+//	if ok {
+//	    fmt.Printf("Fixed offset: +%d MHz\n", offset)
+//	}
+func (ps *ProfileSection) GetFixedOffset() (int, bool) {
+	if ps.CoreClkBoost == nil || len(ps.VFCurve) == 0 {
+		return 0, false
+	}
+
+	mode := ps.GetOffsetMode()
+	if mode != OffsetModeFixedOffset {
+		return 0, false
+	}
+
+	coreBoost := *ps.CoreClkBoost
+
+	// Edge case: CoreClkBoost = 1000000 kHz could be either:
+	// - Custom curve mode (marker value)
+	// - Fixed +1000 MHz offset (slider at max)
+	// Since GetOffsetMode() already confirmed fixed offset, extract from V-F curve
+	if coreBoost == coreClkBoostCustomCurveValue {
+		// Parse V-F curve to get the actual offset value
+		hexStr := hex.EncodeToString(ps.VFCurve)
+		curve, err := UnmarshalVFControlCurve(hexStr)
+		if err != nil {
+			return 0, false
+		}
+
+		// Get offset from first active point (all should be uniform)
+		for _, point := range curve.Points {
+			if point.IsActive {
+				return int(point.OffsetMHz), true
+			}
+		}
+		return 0, false
+	}
+
+	// Normal case: CoreClkBoost contains the actual offset value
+	return coreBoost / 1000, true
 }
 
 // ProfileMiscSettings contains miscellaneous profile settings.

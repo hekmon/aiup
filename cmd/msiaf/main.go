@@ -118,6 +118,12 @@ func main() {
 			if startup.CoreClkBoost != nil {
 				fmt.Printf("      CoreClkBoost:  +%d MHz\n", startup.GetCoreClkBoostMHz())
 			}
+			// Display offset mode detection (NEW - demonstrates GetOffsetMode/GetFixedOffset API)
+			offsetMode := startup.GetOffsetMode()
+			fmt.Printf("      OffsetMode:    %s\n", offsetMode)
+			if offset, ok := startup.GetFixedOffset(); ok {
+				fmt.Printf("      FixedOffset:   +%d MHz\n", offset)
+			}
 			if startup.MemClkBoost != nil {
 				fmt.Printf("      MemClkBoost:   +%d MHz\n", startup.GetMemClkBoostMHz())
 			}
@@ -163,6 +169,12 @@ func main() {
 					}
 					if slot.CoreClkBoost != nil {
 						fmt.Printf("        CoreClk:     +%d MHz\n", slot.GetCoreClkBoostMHz())
+					}
+					// Display offset mode detection (NEW - demonstrates GetOffsetMode/GetFixedOffset API)
+					offsetMode := slot.GetOffsetMode()
+					fmt.Printf("        OffsetMode:  %s\n", offsetMode)
+					if offset, ok := slot.GetFixedOffset(); ok {
+						fmt.Printf("        FixedOffset: +%d MHz\n", offset)
 					}
 					if slot.MemClkBoost != nil {
 						fmt.Printf("        MemClk:      +%d MHz\n", slot.GetMemClkBoostMHz())

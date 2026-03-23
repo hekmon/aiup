@@ -728,6 +728,40 @@ When investigating unknown formats:
 
 ## 📝 PROFILE SYSTEM
 
+### Offset Mode Detection (profile.go)
+
+The offset mode detection system identifies whether a profile uses **fixed offset mode** (simple Core MHz slider) or **custom curve mode** (Curve Editor).
+
+**Key Principle:** The **V-F curve is the source of truth**. CoreClkBoost is just a hint.
+
+**Key Types:**
+- `OffsetMode` - Enum: `OffsetModeFixedOffset`, `OffsetModeCustomCurve`, `OffsetModeInvalid`, `OffsetModeUnknown`
+- `OffsetMode.String()` - Human-readable description (e.g., "Fixed Offset (slider mode)")
+
+**Key Methods:**
+- `GetOffsetMode()` - Detect the offset mode by analyzing V-F curve pattern
+- `GetFixedOffset()` - Extract the fixed offset value in MHz (returns `offset, bool`)
+
+**Detection Logic:**
+| V-F Curve Pattern | Detected Mode | Handles Edge Case |
+|-------------------|---------------|-------------------|
+| All active points have uniform offset (±1 MHz) | `OffsetModeFixedOffset` | ✅ Even if CoreClkBoost = 1000000 kHz (+1000 MHz slider) |
+| Active points have varying offsets | `OffsetModeCustomCurve` | ✅ Standard curve editor detection |
+| V-F curve parse error or empty | `OffsetModeInvalid` | ✅ Corrupt data detection |
+
+**Critical Edge Case:** When Core slider = +1000 MHz, `CoreClkBoost = 1000000 kHz` (same as custom curve marker). Detection handles this by checking V-F curve offsets.
+
+**Example:**
+```go
+mode := profile.Startup.GetOffsetMode()
+if mode == msiaf.OffsetModeFixedOffset {
+    offset, ok := profile.Startup.GetFixedOffset()
+    fmt.Printf("Fixed offset: +%d MHz\n", offset)
+}
+```
+
+**See:** [`overclocking/msiaf/README.md`](overclocking/msiaf/README.md#offset-mode-detection) for complete API reference.
+
 ### Profile Matching (active.go)
 
 The profile matching system detects which hardware profile slot (Startup or Profile1-5) is currently active by comparing the live GPU V-F curve against saved profiles.
@@ -812,6 +846,7 @@ Hardware profile files contain GPU-specific overclocking and fan settings.
 | **Global config parsing** | `overclocking/msiaf/globalconfig.go` | Settings struct with all fields, type conversions (time.Duration, bool, hex blobs) |
 | **Scanning profiles** | `overclocking/msiaf/scan.go` | File discovery, HardwareProfileInfo struct, Scan() function |
 | **Profile matching** | `overclocking/msiaf/active.go` | MatchVFCurve(), MatchProfileAgainstLive(), FindBestMatch(), ProfileMatchResult type |
+| **Offset mode detection** | `overclocking/msiaf/profile.go` | GetOffsetMode() (V-F curve analysis), GetFixedOffset(), handles +1000 MHz edge case |
 | **GPU catalog lookup** | `overclocking/msiaf/catalog/catalog.go` | LookupGPU(), LookupManufacturer(), GetFullGPUDescription() |
 | **Cross-platform NVAPI** | `overclocking/nvvf/README.md` | V-F curves, GPU names, clock domains, API reference, struct layouts, OC Scanner behavior |
 | **NVAPI implementation** | `overclocking/nvvf/nvvf.go` | Shared types, VFPoint struct, parsers, ReadNvAPIVF() auto-detect |
