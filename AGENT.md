@@ -222,6 +222,56 @@ At the end of successful sessions (everything builds, tests pass, stable conclus
 
 ---
 
+## 🏗️ PACKAGE ARCHITECTURE
+
+**Design Principle:** Clear separation between low-level primitives and high-level orchestration. The `overclocking` package provides a clean abstraction layer that **hides all low-level implementation details**.
+
+### Layer Hierarchy
+
+| Layer | Packages | Purpose | Dependencies |
+|-------|----------|---------|--------------|
+| **High-level** | `overclocking` | Complete workflows: OC Scanner, profile management, safety validation, session management | Imports `msiaf` + `nvvf` |
+| **Low-level** | `msiaf`, `nvvf` | Raw parsing and hardware access primitives | None (independent) |
+| **Executables** | `cmd/*` | Standalone programs and CLI tools | Import as needed |
+
+### Abstraction Rules
+
+**The `overclocking` package MUST hide low-level packages:**
+
+| What to Hide | How | Example |
+|--------------|-----|---------|
+| **Functions** | Wrap in high-level methods | `overclocking.ApplyProfile()` instead of `msiaf.ParseProfile()` + `nvvf.SetClocks()` |
+| **Types** | Define wrapper types | `overclocking.GPU` instead of exposing `msiaf.HardwareProfileInfo` or `nvvf.VFPoint` |
+| **Constants** | Re-export with semantic names | `overclocking.MaxVoltageMV` instead of `nvvf.NVAPI_MAX_VOLTAGE` |
+| **Errors** | Wrap in domain-specific errors | `overclocking.ErrProfileMismatch` instead of raw parsing errors |
+
+**Why hide types?**
+- Users shouldn't need to know about `msiaf.HardwareProfileInfo` or `nvvf.VFPoint` when using `overclocking`
+- Low-level types may change without breaking the high-level API
+- Provides a single, coherent mental model for overclocking workflows
+- Prevents accidental mixing of low-level and high-level APIs
+
+### Dependency Rules
+
+```
+✅ ALLOWED:
+- overclocking → msiaf (import)
+- overclocking → nvvf (import)
+- cmd/* → any package (import)
+- msiaf/catalog → (no internal dependencies)
+
+❌ FORBIDDEN:
+- msiaf → nvvf (no cross-dependency between low-level packages)
+- nvvf → msiaf (no cross-dependency between low-level packages)
+- msiaf → overclocking (no circular dependencies)
+- nvvf → overclocking (no circular dependencies)
+- overclocking → exposes msiaf/nvvf types in public API (leaky abstraction)
+```
+
+**Test:** If a user of `overclocking` needs to import `msiaf` or `nvvf` to understand the API, the abstraction is leaking.
+
+---
+
 ## 🖥️ PLATFORM DETECTION AND EXPERIMENT EXECUTION
 
 ### Overview
