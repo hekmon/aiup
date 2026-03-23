@@ -91,6 +91,14 @@ func ScanGPUs(profilesDir string) (*DiscoveryResult, error) {
 	matchedNvvIndices := make(map[int]bool)
 
 	for _, profile := range scanResult.HardwareProfiles {
+		// Skip non-NVIDIA profiles (MSI Afterburner supports both NVIDIA and AMD)
+		// NVIDIA vendor ID is 10DE, AMD is 1002, etc.
+		if profile.VendorID != "10DE" {
+			// Non-NVIDIA profile (e.g., AMD Radeon) - skip with informational message
+			result.Errors = append(result.Errors, fmt.Sprintf("Skipping non-NVIDIA profile %s (vendor ID: %s)", profile.FilePath, profile.VendorID))
+			continue
+		}
+
 		// Get the full GPU description from the profile's PCI IDs
 		// This gives us something like "ASUS NVIDIA GeForce RTX 5090"
 		profileDesc := profile.GetGPUDescription()
@@ -114,8 +122,8 @@ func ScanGPUs(profilesDir string) (*DiscoveryResult, error) {
 		}
 
 		if matchedIndex == nil {
-			// Profile exists but no matching GPU detected - this is an error
-			return nil, fmt.Errorf("profile %s (%s) has no matching physical GPU detected by NvAPI", profile.FilePath, profileDesc)
+			// NVIDIA profile exists but no matching GPU detected - this is an error
+			return nil, fmt.Errorf("NVIDIA profile %s (%s) has no matching physical GPU detected by NvAPI", profile.FilePath, profileDesc)
 		}
 
 		// Mark this NvAPI GPU as matched

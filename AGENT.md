@@ -318,19 +318,35 @@ ls /mnt/c 2>/dev/null && echo "WSL" || echo "Native Linux or Windows"
 
 #### WSL (Windows Subsystem for Linux)
 
-**Key Principle:** WSL can access Windows drivers and DLLs through interop, but Linux binaries cannot access Windows-specific libraries.
+> **⚠️ CRITICAL RULE: Always Build for Windows**
+> 
+> When developing in WSL, **ALWAYS compile Windows binaries** (`GOOS=windows`):
+> ```bash
+> GOOS=windows GOARCH=amd64 go build -o program.exe ./path/to/cmd/
+> ```
+> 
+> **Why?** WSL runs on the **Windows kernel**, not Linux:
+> - WSL uses **Windows drivers** (e.g., `nvapi64.dll` for NVIDIA GPU access)
+> - Linux binaries expect Linux kernel interfaces and Linux drivers (not available in WSL)
+> - Windows `.exe` binaries execute natively from WSL via interop
+> - Therefore: Windows binaries + WSL = direct access to Windows drivers
+> 
+> This is not about deployment target - it's about **driver access**. Even though WSL provides a Linux userspace, the underlying kernel and drivers are Windows. Never build Linux binaries for this project when in WSL.
+
+**Key Principle:** WSL runs on the Windows kernel and uses Windows drivers. Windows binaries executed from WSL have direct access to these drivers through the interop layer.
 
 | Task | Strategy | Command |
 |------|----------|---------|
 | **Compile for testing** | Windows target | `GOOS=windows go build -o tmp/exp.exe ./tmp/exp/` |
-| **Execute experiment** | Run `.exe` via WSL interop | `./tmp/exp.exe` (WSL auto-executes Windows binaries) |
+| **Execute experiment** | Run `.exe` natively via WSL interop | `./tmp/exp.exe` (WSL executes Windows binaries directly) |
 | **Access NVIDIA GPU** | Windows `nvapi64.dll` | Windows binary has direct access |
 | **File paths** | Use Windows paths for Windows binary | `C:\path\to\LocalProfiles\` or translate via `/mnt/c/` |
 
 **Why Windows binaries on WSL?**
-- WSL's Linux environment cannot load `nvapi64.dll` (Windows-only DLL)
-- Windows `.exe` executed from WSL can access Windows drivers through interop
-- NvAPI functions work correctly through the WSL interop layer
+- WSL uses the **Windows kernel** with **Windows drivers** (not Linux drivers)
+- Linux binaries cannot interface with Windows kernel drivers
+- Windows `.exe` executed from WSL can directly call Windows driver APIs (e.g., `nvapi64.dll`)
+- WSL's interop layer seamlessly executes Windows binaries
 - This is the **only** way to access NVIDIA GPU data from WSL
 
 **Example WSL workflow:**
@@ -447,9 +463,11 @@ func main() {
 
 | Environment | Build Command | Output | Execution | Driver/Library Access |
 |-------------|---------------|--------|-----------|----------------------|
-| **WSL** | `GOOS=windows go build` | `.exe` | `./program.exe` | Windows `nvapi64.dll` ✓ |
-| **Windows** | `go build` | `.exe` | `.\program.exe` | Windows `nvapi64.dll` ✓ |
+| **WSL** | `GOOS=windows GOARCH=amd64 go build` | `.exe` | `./program.exe` | Windows `nvapi64.dll` ✓ |
+| **Windows** | `go build` (or `GOOS=windows go build`) | `.exe` | `.\program.exe` | Windows `nvapi64.dll` ✓ |
 | **Linux** | `go build` (requires cgo) | ELF binary | `./program` | `libnvidia-api.so.1` ✓ |
+
+> **Note for WSL developers:** The `GOOS=windows GOARCH=amd64` flags are **mandatory** for this project. WSL uses Windows kernel drivers, so only Windows binaries can access the GPU. Linux binaries will fail.
 
 ### Common Pitfalls
 

@@ -1,6 +1,7 @@
 package msiaf
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -134,7 +135,12 @@ func Scan(profilesDir string) (*ScanResult, error) {
 
 			// Filter out placeholder/generic hardware (DEV_0000)
 			if info.DeviceID != "0000" {
-				result.HardwareProfiles = append(result.HardwareProfiles, info)
+				// Validate profile has content (Startup section or profile slots)
+				if profileHasContent(info.FilePath) {
+					result.HardwareProfiles = append(result.HardwareProfiles, info)
+				} else {
+					result.Errors = append(result.Errors, fmt.Sprintf("skipping empty profile (no Startup/profiles): %s", name))
+				}
 			} else {
 				result.Errors = append(result.Errors, fmt.Sprintf("skipping placeholder profile: %s", name))
 			}
@@ -152,4 +158,30 @@ func Scan(profilesDir string) (*ScanResult, error) {
 	}
 
 	return result, nil
+}
+
+// profileHasContent checks if a hardware profile file has actual content.
+// Returns true if the file contains a [Startup] section or any [Profile1-5] sections.
+// Returns false for empty files or files with only metadata (no usable settings).
+func profileHasContent(filePath string) bool {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		// Check for section headers (Startup, Profile1-5)
+		if strings.HasPrefix(line, "[Startup]") ||
+			strings.HasPrefix(line, "[Profile1]") ||
+			strings.HasPrefix(line, "[Profile2]") ||
+			strings.HasPrefix(line, "[Profile3]") ||
+			strings.HasPrefix(line, "[Profile4]") ||
+			strings.HasPrefix(line, "[Profile5]") {
+			return true
+		}
+	}
+	return false
 }

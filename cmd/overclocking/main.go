@@ -2,7 +2,7 @@
 // It supports two modes:
 //
 //  1. GPU Discovery: Scans MSI Afterburner profiles and correlates them with NvAPI-detected GPUs
-//  2. Current Curve: Reads the current V-F curve from a specific GPU and compares it against Startup
+//  2. Current State: Reads the complete current GPU state (V-F curve, memory overclock, power limit, fan) from a specific GPU
 //
 // Both modes output results as pretty-printed JSON.
 //
@@ -15,7 +15,7 @@
 //	# GPU Discovery mode (default)
 //	overclocking.exe
 //
-//	# Current Curve mode (get curve for GPU 0)
+//	# Current State mode (get current state for GPU 0)
 //	overclocking.exe -gpu 0
 //
 // Flags:
@@ -42,7 +42,7 @@ func main() {
 	defaultProfilesDir := `C:\Program Files (x86)\MSI Afterburner\Profiles`
 
 	profilesDir := flag.String("profiles", defaultProfilesDir, "Path to MSI Afterburner Profiles directory")
-	gpuIndex := flag.Int("gpu", -1, "Get current V-F curve for specified GPU index (0, 1, 2, ...)")
+	gpuIndex := flag.Int("gpu", -1, "Get current GPU state for specified GPU index (0, 1, 2, ...)")
 	flag.Parse()
 
 	// Pretty-print helper
@@ -83,8 +83,8 @@ func main() {
 			os.Exit(1)
 		}
 
-		// Step 3: Get current V-F curve using profile path
-		result, err := overclocking.GetCurrentCurve(*gpuIndex, profilePath)
+		// Step 3: Get current GPU state using profile path
+		result, err := overclocking.GetCurrentState(*gpuIndex, profilePath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)

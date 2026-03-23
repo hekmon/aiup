@@ -17,21 +17,35 @@ type SavedProfileInfo struct {
 	Confidence float64 `json:"confidence"`  // Match confidence (0.0-1.0)
 }
 
-// CurrentCurveResult contains the result of getting the current V-F curve.
+// CurrentStateResult contains the complete current GPU overclocking state.
+// This includes the V-F curve, memory overclock, power limit, and fan settings.
 // All fields are JSON-serializable for MCP/API compatibility.
-type CurrentCurveResult struct {
+type CurrentStateResult struct {
+	// V-F Curve (core overclock)
+	Points []VFPoint `json:"points"` // All voltage points with offsets
+
+	// Memory overclock
+	MemClkBoostMHz int `json:"mem_clk_boost_mhz"` // Memory clock offset in MHz (e.g., 3000)
+
+	// Power and thermal limits
+	PowerLimitPercent int `json:"power_limit_percent"` // Power limit percentage (e.g., 100)
+
+	// Fan settings
+	FanMode         string `json:"fan_mode"`          // "auto" or "manual"
+	FanSpeedPercent *int   `json:"fan_speed_percent"` // Manual fan speed (0-100) if in manual mode
+
+	// Profile matching info
 	LiveMatchesStartup bool              `json:"live_matches_startup"` // true if live curve matches Startup profile
 	Profile            *SavedProfileInfo `json:"profile"`              // Which saved profile slot matches (null if none)
-	Points             []VFPoint         `json:"points"`               // All voltage points with offsets
 }
 
-// GetCurrentCurve reads the current V-F curve from the GPU and compares it against the Startup profile.
+// GetCurrentState reads the complete current GPU overclocking state from the GPU and profile.
 //
 // This function:
 //  1. Reads the live V-F curve from the GPU via NvAPI
 //  2. Loads the hardware profile from the specified profile file path
 //  3. Compares live curve against Startup profile (reports match status, does not error on mismatch)
-//  4. Returns the Startup V-F curve (currently applied)
+//  4. Extracts all current settings: V-F curve, memory overclock, power limit, fan settings
 //  5. Additionally checks if Startup matches Profile1-5 (informational for save operations)
 //
 // Parameters:
@@ -39,7 +53,7 @@ type CurrentCurveResult struct {
 //   - profilePath: Path to the hardware profile .cfg file (from DiscoveryResult.GPUs[i].ProfilePath)
 //
 // Returns:
-//   - result: CurrentCurveResult with V-F curve points, profile match info, and live match status
+//   - result: CurrentStateResult with complete GPU state
 //   - error: Only for actual errors (file read failures, NvAPI errors, etc.)
 //
 // Example usage:
@@ -50,10 +64,10 @@ type CurrentCurveResult struct {
 //	    return err
 //	}
 //
-//	// Get current curve for GPU 0 using its profile path
-//	result, err := overclocking.GetCurrentCurve(0, discovery.GPUs[0].ProfilePath)
+//	// Get current state for GPU 0 using its profile path
+//	result, err := overclocking.GetCurrentState(0, discovery.GPUs[0].ProfilePath)
 //	if err != nil {
-//	    return fmt.Errorf("failed to get current curve: %w", err)
+//	    return fmt.Errorf("failed to get current state: %w", err)
 //	}
 //
 //	// Check if live curve matches Startup
@@ -61,7 +75,15 @@ type CurrentCurveResult struct {
 //	    fmt.Println("Warning: Live curve differs from Startup profile (unsaved changes?)")
 //	}
 //
-//	// Modify the curve
+//	// Access current settings
+//	fmt.Printf("Memory overclock: +%d MHz\n", result.MemClkBoostMHz)
+//	fmt.Printf("Power limit: %d%%\n", result.PowerLimitPercent)
+//	fmt.Printf("Fan mode: %s", result.FanMode)
+//	if result.FanSpeedPercent != nil {
+//	    fmt.Printf(" (%d%%)\n", *result.FanSpeedPercent)
+//	}
+//
+//	// Modify the V-F curve
 //	result.Points[0].OffsetMHz = 1000 // Set 1000 MHz offset at first voltage point
 //
 //	// Inform user about save location
@@ -70,47 +92,65 @@ type CurrentCurveResult struct {
 //	} else {
 //	    fmt.Println("Current curve is unique - save to any slot")
 //	}
-func GetCurrentCurve(gpuIndex int, profilePath string) (*CurrentCurveResult, error) {
+func GetCurrentState(gpuIndex int, profilePath string) (*CurrentStateResult, error) {
 	// Step 1: Load hardware profile from disk
 	hwProfile, err := msiaf.ParseHardwareProfile(profilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load hardware profile %s: %w", profilePath, err)
 	}
 
-	// Step 4: Read live V-F curve from GPU via NvAPI
+	// Step 2: Extract current settings from Startup section
+	startup := &hwProfile.Startup
+
+	// Extract memory overclock (convert from kHz to MHz)
+	memClkBoostMHz := startup.GetMemClkBoostMHz()
+
+	// Extract power limit
+	powerLimitPercent := startup.GetPowerLimit()
+
+	// Extract fan settings
+	fanMode := startup.GetFanMode()
+	fanModeStr := fanMode.String()
+	var fanSpeedPercent *int
+	if fanMode == msiaf.FanModeManual {
+		fs := startup.GetFanSpeed()
+		fanSpeedPercent = &fs
+	}
+
+	// Step 3: Read live V-F curve from GPU via NvAPI
 	livePoints, err := nvvf.ReadNvAPIVF(gpuIndex)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read live V-F curve from GPU %d: %w", gpuIndex, err)
 	}
 
-	// Step 5: Build liveFreqs map: voltage (mV) -> frequency (MHz)
+	// Step 4: Build liveFreqs map: voltage (mV) -> frequency (MHz)
 	liveFreqs := make(map[float32]float64, len(livePoints))
 	for _, pt := range livePoints {
 		liveFreqs[float32(pt.VoltageMV)] = pt.BaseFreqMHz
 	}
 
-	// Step 6: Match all profile slots against live V-F curve (10 MHz tolerance)
+	// Step 5: Match all profile slots against live V-F curve (10 MHz tolerance)
 	const toleranceMHz = 10.0
 	matchResults, err := msiaf.MatchProfileAgainstLive(liveFreqs, hwProfile, toleranceMHz)
 	if err != nil {
 		return nil, fmt.Errorf("failed to match profiles against live curve: %w", err)
 	}
 
-	// Step 7: Check if Startup (slot 0) matches live data
+	// Step 6: Check if Startup (slot 0) matches live data
 	// This is informational - caller decides how to handle mismatch
 	startupResult := matchResults[0]
 	liveMatchesStartup := startupResult.IsMatch(1.0)
 
-	// Step 8: Extract Startup V-F curve (slot 0)
+	// Step 7: Extract Startup V-F curve (slot 0)
 	vfCurveRaw, err := extractVFCurve(hwProfile, 0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract V-F curve from Startup slot: %w", err)
 	}
 
-	// Step 9: Convert to user-friendly VFPoint format
+	// Step 8: Convert to user-friendly VFPoint format
 	points := convertToVFPoints(vfCurveRaw)
 
-	// Step 10: Additionally check if Startup matches any Profile1-5 slot
+	// Step 9: Additionally check if Startup matches any Profile1-5 slot
 	// This is informational - helps user decide where to save modifications
 	var savedProfile *SavedProfileInfo
 	for i := 1; i <= 5; i++ {
@@ -126,8 +166,12 @@ func GetCurrentCurve(gpuIndex int, profilePath string) (*CurrentCurveResult, err
 		}
 	}
 
-	return &CurrentCurveResult{
+	return &CurrentStateResult{
 		Points:             points,
+		MemClkBoostMHz:     memClkBoostMHz,
+		PowerLimitPercent:  powerLimitPercent,
+		FanMode:            fanModeStr,
+		FanSpeedPercent:    fanSpeedPercent,
 		Profile:            savedProfile,
 		LiveMatchesStartup: liveMatchesStartup,
 	}, nil

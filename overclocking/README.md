@@ -203,20 +203,33 @@ type SavedProfileInfo struct {
     Confidence float64 `json:"confidence"`  // Match confidence (0.0-1.0)
 }
 
-// CurrentCurveResult contains the result of getting the current V-F curve.
-type CurrentCurveResult struct {
-    Points             []VFPoint         `json:"points"`               // All voltage points with offsets
-    Profile            *SavedProfileInfo `json:"profile"`              // Which saved profile slot matches (null if none)
+// CurrentStateResult contains the complete current GPU overclocking state.
+type CurrentStateResult struct {
+    // V-F Curve (core overclock)
+    Points []VFPoint `json:"points"` // All voltage points with offsets
+
+    // Memory overclock
+    MemClkBoostMHz int `json:"mem_clk_boost_mhz"` // Memory clock offset in MHz (e.g., 3000)
+
+    // Power and thermal limits
+    PowerLimitPercent int `json:"power_limit_percent"` // Power limit percentage (e.g., 100)
+
+    // Fan settings
+    FanMode         string `json:"fan_mode"`          // "auto" or "manual"
+    FanSpeedPercent *int   `json:"fan_speed_percent"` // Manual fan speed (0-100) if in manual mode
+
+    // Profile matching info
     LiveMatchesStartup bool              `json:"live_matches_startup"` // true if live curve matches Startup profile
+    Profile            *SavedProfileInfo `json:"profile"`              // Which saved profile slot matches (null if none)
 }
 ```
 
 **Key Functions:**
 
 ```go
-// GetCurrentCurve reads the current V-F curve and compares it against the Startup profile.
+// GetCurrentState reads the complete current GPU overclocking state and compares it against the Startup profile.
 // The profilePath parameter comes from DiscoveryResult.GPUs[i].ProfilePath.
-func GetCurrentCurve(gpuIndex int, profilePath string) (*CurrentCurveResult, error)
+func GetCurrentState(gpuIndex int, profilePath string) (*CurrentStateResult, error)
 ```
 
 **Example Usage:**
@@ -230,10 +243,10 @@ if err != nil {
     return fmt.Errorf("failed to scan GPUs: %w", err)
 }
 
-// Step 2: Get current V-F curve for GPU 0
-result, err := overclocking.GetCurrentCurve(0, discovery.GPUs[0].ProfilePath)
+// Step 2: Get current GPU state for GPU 0
+result, err := overclocking.GetCurrentState(0, discovery.GPUs[0].ProfilePath)
 if err != nil {
-    return fmt.Errorf("failed to get current curve: %w", err)
+    return fmt.Errorf("failed to get current state: %w", err)
 }
 
 // Check if live curve matches Startup (non-breaking validation)
@@ -241,7 +254,15 @@ if !result.LiveMatchesStartup {
     fmt.Println("Warning: Live curve differs from Startup profile (unsaved changes?)")
 }
 
-// Read current offsets
+// Access complete current state
+fmt.Printf("Memory overclock: +%d MHz\n", result.MemClkBoostMHz)
+fmt.Printf("Power limit: %d%%\n", result.PowerLimitPercent)
+fmt.Printf("Fan mode: %s", result.FanMode)
+if result.FanSpeedPercent != nil {
+    fmt.Printf(" (%d%%)\n", *result.FanSpeedPercent)
+}
+
+// Read current V-F curve offsets
 for _, pt := range result.Points {
     fmt.Printf("At %v mV: %v MHz offset\n", pt.VoltageMV, pt.OffsetMHz)
 }
@@ -315,9 +336,9 @@ These rules apply to all code in the overclocking package:
 
 | Rule | Requirement | Example |
 |------|-------------|---------|
-| Simple parameters | Only `int`, `string`, `bool`, slices | ✅ `func GetCurrentCurve(gpuIndex int, profilePath string)` |
-| JSON-serializable return | Struct with json tags + error | ✅ `(*CurrentCurveResult, error)` |
-| No complex input types | Don't require caller to construct structs | ❌ `func GetCurrentCurve(gpu *GPUInfo)` |
+| Simple parameters | Only `int`, `string`, `bool`, slices | ✅ `func GetCurrentState(gpuIndex int, profilePath string)` |
+| JSON-serializable return | Struct with json tags + error | ✅ `(*CurrentStateResult, error)` |
+| No complex input types | Don't require caller to construct structs | ❌ `func GetCurrentState(gpu *GPUInfo)` |
 | Non-breaking validation | Report issues in result, don't error | ✅ `LiveMatchesStartup: false` instead of `return nil, err` |
 
 **Rationale:** MCP clients can only pass simple JSON values. Complex types must be constructed internally or returned, never required as input.

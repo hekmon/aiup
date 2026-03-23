@@ -49,6 +49,29 @@ func (m OffsetMode) String() string {
 	}
 }
 
+// FanMode represents how the GPU fan is configured in a profile.
+type FanMode int
+
+const (
+	// FanModeAuto indicates automatic fan control (temperature-based curve).
+	FanModeAuto FanMode = iota
+
+	// FanModeManual indicates manual fan speed control (fixed percentage).
+	FanModeManual
+)
+
+// String returns a human-readable description of the fan mode.
+func (m FanMode) String() string {
+	switch m {
+	case FanModeAuto:
+		return "auto"
+	case FanModeManual:
+		return "manual"
+	default:
+		return "unknown"
+	}
+}
+
 // HardwareProfile represents a fully parsed hardware-specific .cfg file.
 type HardwareProfile struct {
 	// Startup contains the currently active settings
@@ -443,12 +466,12 @@ func (ps *ProfileSection) GetMemClkBoostMHz() int {
 	return ps.GetMemClkBoost() / 1000
 }
 
-// GetFanMode returns the fan mode (0=auto, 1=manual), or 0 if not set.
-func (ps *ProfileSection) GetFanMode() int {
+// GetFanMode returns the fan mode, or FanModeAuto if not set.
+func (ps *ProfileSection) GetFanMode() FanMode {
 	if ps.FanMode == nil {
-		return 0
+		return FanModeAuto
 	}
-	return *ps.FanMode
+	return FanMode(*ps.FanMode)
 }
 
 // GetFanSpeed returns the fan speed percentage, or 0 if not set.
