@@ -58,6 +58,7 @@ It provides high-level operations that combine these lower-level capabilities:
 overclocking/
 ├── README.md              # This file - package documentation and guidelines
 ├── discovery.go           # GPU discovery (scan profiles, correlate with NvAPI) ✅ IMPLEMENTED
+├── status.go              # Current curve detection (validate Startup, return V-F curve) ✅ IMPLEMENTED
 ├── session.go             # Session management (baseline, current, history)
 ├── scanner.go             # OC Scanner integration and analysis
 ├── profile.go             # Profile comparison and diffing
@@ -167,6 +168,81 @@ overclocking.exe -profiles "D:\Custom\Profiles"
 
 # Show help
 overclocking.exe -h
+```
+
+### Current Curve Detection ✅ IMPLEMENTED
+
+Reads the current V-F curve from a GPU and validates it matches the Startup profile.
+
+**Purpose:** This function provides AI agents with the currently applied V-F curve, enabling them to:
+- Read current overclock offsets at each voltage point
+- Validate that the live GPU state matches the Startup profile
+- Identify which profile slot (if any) the current curve originated from
+
+**Validation:** The function validates that the live V-F curve matches the Startup profile with 100% confidence. If not, it returns an error - this indicates the user has unsaved changes or the profile is not properly applied.
+
+**Profile Match Hint:** Additionally checks if the Startup curve matches any Profile1-5 slot. This is informational - it helps the user decide where to save modifications (e.g., "save back to Profile2" if that's where the current curve originated).
+
+**Key Types:**
+
+```go
+// VFPoint represents a single voltage-frequency point with all components explicit.
+// OffsetMHz is the CORE overclocking value that gets set/modified.
+type VFPoint struct {
+    VoltageMV        float64 `json:"voltage_mv"`         // e.g., 850.0 mV
+    BaseFreqMHz      float64 `json:"base_freq_mhz"`      // Hardware base frequency
+    OffsetMHz        float64 `json:"offset_mhz"`         // ⭐ CORE OC VALUE
+    EffectiveFreqMHz float64 `json:"effective_freq_mhz"` // BaseFreqMHz + OffsetMHz
+}
+
+// SavedProfileInfo indicates which profile slot matches the current curve.
+// This is informational - helps the user decide where to save modifications.
+type SavedProfileInfo struct {
+    SlotNumber int     `json:"slot_number"` // 1-5 (Profile1-5)
+    SlotName   string  `json:"slot_name"`   // "Profile1", "Profile2", etc.
+    Confidence float64 `json:"confidence"`  // Match confidence (0.0-1.0)
+}
+
+// CurrentCurveResult contains the result of getting the current V-F curve.
+type CurrentCurveResult struct {
+    Points  []VFPoint         `json:"points"`  // All voltage points with offsets
+    Profile *SavedProfileInfo `json:"profile"` // Which slot matches (null if no match)
+}
+```
+
+**Key Functions:**
+
+```go
+// GetCurrentCurve reads the current V-F curve and validates it matches Startup.
+// Additionally checks if Startup matches any saved profile slot (informational).
+func GetCurrentCurve(gpuIndex int, profilesDir string) (*CurrentCurveResult, error)
+```
+
+**Example Usage:**
+
+```go
+import "github.com/hekmon/aiup/overclocking"
+
+// Get current V-F curve for GPU 0
+result, err := overclocking.GetCurrentCurve(0, profilesDir)
+if err != nil {
+    return fmt.Errorf("failed to get current curve: %w", err)
+}
+
+// Read current offsets
+for _, pt := range result.Points {
+    fmt.Printf("At %v mV: %v MHz offset\n", pt.VoltageMV, pt.OffsetMHz)
+}
+
+// Modify offsets (AI agent workflow)
+result.Points[0].OffsetMHz = 1000 // Set 1000 MHz offset at first voltage point
+
+// Check if current curve matches a saved profile (hint for save location)
+if result.Profile != nil {
+    fmt.Printf("Current curve matches %s - save to same slot?\n", result.Profile.SlotName)
+} else {
+    fmt.Println("Current curve is unique - save to any slot (Profile1-5)")
+}
 ```
 
 ### Session Management
