@@ -44,23 +44,20 @@ func (m mainView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 	case tea.WindowSizeMsg:
+		infoPanelWidth := msg.Width / 3
 		// Update chat panel
 		model, cmd = m.chatPanel.Update(tea.WindowSizeMsg{
-			Width:  msg.Width - (msg.Width / 3),
+			Width:  msg.Width - infoPanelWidth,
 			Height: msg.Height,
 		})
-		if cp, ok := model.(chatPanel); ok {
-			m.chatPanel = cp
-		}
+		m.chatPanel = model.(chatPanel)
 		cmds = append(cmds, cmd)
 		// Update info panel
 		model, cmd = m.infoPanel.Update(tea.WindowSizeMsg{
-			Width:  msg.Width / 3,
+			Width:  infoPanelWidth,
 			Height: msg.Height,
 		})
-		if lp, ok := model.(infoPanel); ok {
-			m.infoPanel = lp
-		}
+		m.infoPanel = model.(infoPanel)
 		cmds = append(cmds, cmd)
 		// If we did not had size yet, we are now ready
 		if !m.ready {
