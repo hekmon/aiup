@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -20,10 +19,7 @@ type infoPanel struct {
 	height int
 	ready  bool
 
-	// Left panel-specific state
-	title    string
-	items    []string
-	selected int
+	items []string
 }
 
 func (lp infoPanel) Init() tea.Cmd {
@@ -45,26 +41,13 @@ func (lp infoPanel) View() (v tea.View) {
 		v.SetContent("Left panel loading...")
 		return
 	}
-
-	// Left panel border and styling
+	// Panel dynamic size
 	panelStyle := infoPanelStyle.Width(lp.width).Height(lp.height)
-
 	// Build panel content
 	lines := []string{"📋 Left Panel"}
-	if len(lp.items) > 0 {
-		lines = append(lines, "")
-		for i, item := range lp.items {
-			prefix := "  "
-			if i == lp.selected {
-				prefix = "> "
-			}
-			lines = append(lines, fmt.Sprintf("%s%s", prefix, item))
-		}
-	} else {
-		lines = append(lines, "")
-		lines = append(lines, "No items to display")
-	}
-
+	lines = append(lines, "")
+	lines = append(lines, "No items to display")
+	// Render panel
 	v.SetContent(panelStyle.Render(strings.Join(lines, "\n")))
 	return
 }

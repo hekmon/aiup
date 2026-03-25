@@ -19,7 +19,6 @@ type chatPanel struct {
 	height int
 	ready  bool
 
-	// Chat-specific state
 	messages []string
 }
 
@@ -42,10 +41,8 @@ func (cp chatPanel) View() (v tea.View) {
 		v.SetContent("Chat panel loading...")
 		return
 	}
-
-	// Chat panel border and styling
+	// Panel dynamic size
 	chatStyle := chatStyle.Width(cp.width).Height(cp.height)
-
 	// Build chat content
 	lines := []string{"💬 Chat Panel"}
 	if len(cp.messages) > 0 {
@@ -55,7 +52,7 @@ func (cp chatPanel) View() (v tea.View) {
 		lines = append(lines, "")
 		lines = append(lines, "No messages yet...")
 	}
-
+	// Render
 	v.SetContent(chatStyle.Render(strings.Join(lines, "\n")))
 	return
 }

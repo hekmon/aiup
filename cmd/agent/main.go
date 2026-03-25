@@ -19,15 +19,16 @@ type mainView struct {
 
 func (m mainView) Init() tea.Cmd {
 	// Initialize sub-panels
-	var cmds []tea.Cmd
-
-	if cmd := m.chatPanel.Init(); cmd != nil {
+	var (
+		cmd  tea.Cmd
+		cmds []tea.Cmd
+	)
+	if cmd = m.chatPanel.Init(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
-	if cmd := m.infoPanel.Init(); cmd != nil {
+	if cmd = m.infoPanel.Init(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
-
 	return tea.Batch(cmds...)
 }
 
@@ -37,7 +38,7 @@ func (m mainView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd   tea.Cmd
 		cmds  []tea.Cmd
 	)
-
+	// Catch specific messages we handle a certain way
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		if k := msg.String(); k == "ctrl+c" || k == "q" || k == "esc" {
@@ -67,22 +68,16 @@ func (m mainView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// skip auto forwarding to subpanels
 		return m, tea.Batch(cmds...)
 	}
-
 	// Route non specific messages to sub-panels
-	// Each panel can act on the message and return a new model and a command
-
+	//// Chat panel
 	model, cmd = m.chatPanel.Update(msg)
-	if cp, ok := model.(chatPanel); ok {
-		m.chatPanel = cp
-	}
+	m.chatPanel = model.(chatPanel)
 	cmds = append(cmds, cmd)
-
+	//// Info panel
 	model, cmd = m.infoPanel.Update(msg)
-	if lp, ok := model.(infoPanel); ok {
-		m.infoPanel = lp
-	}
+	m.infoPanel = model.(infoPanel)
 	cmds = append(cmds, cmd)
-
+	// Return to the application updated model and commands to execute
 	return m, tea.Batch(cmds...)
 }
 
