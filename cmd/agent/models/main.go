@@ -6,29 +6,18 @@ import (
 )
 
 const (
-	appTitle = "GPU Overclocking AI Assistant"
+	appTitle = "GPU OC AI Assistant"
 )
 
-func NewMainModel() tea.Model {
-	return main{
-		headerPanel: headerModel{},
-		chatPanel:   chatPanel{},
-		infoPanel:   infoPanel{},
-	}
-}
-
-// main is the root model that composes chatPanel and infoPanel
 type main struct {
 	// Layout state
 	ready bool
 	// Sub-panels
-	headerPanel tea.Model
-	chatPanel   tea.Model
-	infoPanel   tea.Model
+	chatPanel tea.Model
+	infoPanel tea.Model
 }
 
 func (m main) Init() tea.Cmd {
-	// Initialize sub-panels
 	var (
 		cmd  tea.Cmd
 		cmds []tea.Cmd
@@ -54,9 +43,6 @@ func (m main) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 	case tea.WindowSizeMsg:
-		m.headerPanel, cmd = m.headerPanel.Update(msg)
-		return m, cmd
-	case remainingSizeAfterHeader:
 		// Update sub pannels sizes
 		infoPanelWidth := msg.Width / 3
 		m.chatPanel, cmd = m.chatPanel.Update(tea.WindowSizeMsg{
@@ -91,19 +77,15 @@ func (m main) View() (v tea.View) {
 		v.SetContent("\n  Initializing...")
 		return
 	}
-	v.SetContent(
-		lipgloss.JoinVertical(
-			lipgloss.Center,
-			m.headerPanel.View().Content,
-			lipgloss.JoinHorizontal(
-				lipgloss.Top,
-				m.chatPanel.View().Content,
-				m.infoPanel.View().Content,
-			),
-		),
-	)
 	v.WindowTitle = appTitle
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
+	v.SetContent(
+		lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			m.chatPanel.View().Content,
+			m.infoPanel.View().Content,
+		),
+	)
 	return
 }
