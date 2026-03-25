@@ -40,13 +40,13 @@ func (lp infoPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (lp infoPanel) View() (v tea.View) {
 	if !lp.ready {
-		v.SetContent(infoPanelStyle.Render("Left panel loading..."))
+		v.SetContent(infoPanelStyle.Render("Info panel loading..."))
 		return
 	}
 	// Panel dynamic size
 	infoPanelStyle := infoPanelStyle.Width(lp.width).Height(lp.height)
 	// Build panel content
-	lines := []string{"📋 Left Panel"}
+	lines := []string{"📋 Info Panel"}
 	lines = append(lines, "")
 	lines = append(lines, "No items to display")
 	// Render panel
