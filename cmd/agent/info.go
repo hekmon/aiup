@@ -31,23 +31,25 @@ func (lp infoPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		lp.width = msg.Width
 		lp.height = msg.Height
-		lp.ready = true
+		if !lp.ready {
+			lp.ready = true
+		}
 	}
 	return lp, nil
 }
 
 func (lp infoPanel) View() (v tea.View) {
 	if !lp.ready {
-		v.SetContent("Left panel loading...")
+		v.SetContent(infoPanelStyle.Render("Left panel loading..."))
 		return
 	}
 	// Panel dynamic size
-	panelStyle := infoPanelStyle.Width(lp.width).Height(lp.height)
+	infoPanelStyle := infoPanelStyle.Width(lp.width).Height(lp.height)
 	// Build panel content
 	lines := []string{"📋 Left Panel"}
 	lines = append(lines, "")
 	lines = append(lines, "No items to display")
 	// Render panel
-	v.SetContent(panelStyle.Render(strings.Join(lines, "\n")))
+	v.SetContent(infoPanelStyle.Render(strings.Join(lines, "\n")))
 	return
 }

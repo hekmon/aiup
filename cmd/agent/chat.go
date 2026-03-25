@@ -31,14 +31,16 @@ func (cp chatPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		cp.width = msg.Width
 		cp.height = msg.Height
-		cp.ready = true
+		if !cp.ready {
+			cp.ready = true
+		}
 	}
 	return cp, nil
 }
 
 func (cp chatPanel) View() (v tea.View) {
 	if !cp.ready {
-		v.SetContent("Chat panel loading...")
+		v.SetContent(chatStyle.Render("Chat panel loading..."))
 		return
 	}
 	// Panel dynamic size
