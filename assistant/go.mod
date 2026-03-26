@@ -1,4 +1,4 @@
-module github.com/hekmon/aiup/cmd/agent
+module github.com/hekmon/aiup/assistant
 
 go 1.25.0
 

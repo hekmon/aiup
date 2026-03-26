@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hekmon/aiup/cmd/agent/models"
+	"github.com/hekmon/aiup/assistant/models"
 
 	tea "charm.land/bubbletea/v2"
 )
