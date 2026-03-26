@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
@@ -10,7 +11,12 @@ import (
 )
 
 func main() {
-	p := tea.NewProgram(models.NewMainModel())
+	msiProfilesDir := flag.String(
+		"profilesDir", `C:\Program Files (x86)\MSI Afterburner\Profiles`,
+		"Path to MSI Afterburner profiles directory",
+	)
+	flag.Parse()
+	p := tea.NewProgram(models.NewMainModel(*msiProfilesDir))
 	if _, err := p.Run(); err != nil {
 		fmt.Println("could not run program:", err)
 		os.Exit(1)

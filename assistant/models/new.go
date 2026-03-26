@@ -1,10 +1,15 @@
 package models
 
-import tea "charm.land/bubbletea/v2"
+import (
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+)
 
-func NewMainModel() tea.Model {
+func NewMainModel(msiProfilesDir string) tea.Model {
 	return main{
-		chatPanel: chatPanel{},
-		infoPanel: infoPanel{},
+		profilesDir: msiProfilesDir,
+		gpusPanel:   list.New(nil, list.NewDefaultDelegate(), 0, 0),
+		chatPanel:   chatPanel{},
+		infoPanel:   infoPanel{},
 	}
 }
