@@ -10,7 +10,8 @@ import (
 var (
 	infoPanelStyle = lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("238")).
+		BorderForeground(lipgloss.Color("69")).
+		// BorderForeground(lipgloss.Color("238")).
 		Padding(1, 2)
 )
 
