@@ -4,15 +4,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
-)
-
-var (
-	infoPanelStyle = lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("69")).
-		// BorderForeground(lipgloss.Color("238")).
-		Padding(1, 2)
 )
 
 type infoPanel struct {
@@ -41,11 +32,11 @@ func (lp infoPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (lp infoPanel) View() (v tea.View) {
 	if !lp.ready {
-		v.SetContent(infoPanelStyle.Render("Info panel loading..."))
+		v.SetContent(panelStyle.Render("Info panel loading..."))
 		return
 	}
 	// Panel dynamic size
-	infoPanelStyle := infoPanelStyle.Width(lp.width).Height(lp.height)
+	infoPanelStyle := panelStyle.Width(lp.width).Height(lp.height)
 	// Build panel content
 	lines := []string{"📋 Info Panel"}
 	lines = append(lines, "")

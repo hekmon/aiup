@@ -42,7 +42,7 @@ type GPUItem struct {
 
 func (i GPUItem) Title() string { return i.FullDescription }
 func (i GPUItem) Description() string {
-	return fmt.Sprintf("PCIe address: %d:%d:%d",
+	return fmt.Sprintf("PCIe %d:%d:%d",
 		i.BusNumber,
 		i.DeviceNumber,
 		i.FunctionNumber,

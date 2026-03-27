@@ -4,14 +4,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
-)
-
-var (
-	chatStyle = lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("69")).
-		Padding(1, 2)
 )
 
 type chatPanel struct {
@@ -40,11 +32,11 @@ func (cp chatPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (cp chatPanel) View() (v tea.View) {
 	if !cp.ready {
-		v.SetContent(chatStyle.Render("Chat panel loading..."))
+		v.SetContent(panelStyle.Render("Chat panel loading..."))
 		return
 	}
 	// Panel dynamic size
-	chatStyle := chatStyle.Width(cp.width).Height(cp.height)
+	chatStyle := panelStyle.Width(cp.width).Height(cp.height)
 	// Build chat content
 	lines := []string{"💬 Chat Panel"}
 	if len(cp.messages) > 0 {
