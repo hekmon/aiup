@@ -17,6 +17,7 @@
 | Create temp experiment | `mkdir -p tmp/<name>` | Project root |
 | Clean up experiments | `rm -rf tmp/` | After implementation |
 | Lookup device ID | Check `overclocking/msiaf/catalog/catalog_generated.go` | Or run `go generate` |
+| Filter HWInfo CSV | `go run ./cmd/hwinfo/ -csv file.csv -window 3m` | Project root |
 
 ### Decision Tree: Where Does My Code Go?
 
@@ -39,6 +40,7 @@ What are you building?
 ├── Safety validation?              → overclocking/ (see README.md)
 ├── Session management?             → overclocking/ (see README.md)
 ├── High-level orchestration?       → overclocking/ (combines msiaf + nvvf)
+├── HWInfo CSV filtering?           → overclocking/hwinfo/csv.go
 ├── Combining multiple sources?     → Method on existing type in root package
 ├── Thin wrapper around subpackage? → DON'T DO IT
 └── Utility/helper function?        → Method on the type users already have
@@ -193,8 +195,13 @@ At the end of successful sessions (everything builds, tests pass, stable conclus
 ├── LocalProfiles/              # Test data (gitignored)
 │   └── *.cfg                   # Hardware profile files
 │
-└── tmp/                        # Temporary experiment tools (gitignored)
-    └── <experiment_name>/      # Remove after implementation complete
+├── tmp/                        # Temporary experiment tools (gitignored)
+│   └── <experiment_name>/      # Remove after implementation complete
+│
+└── overclocking/
+    └── hwinfo/                 # HWInfo CSV parsing
+        ├── csv.go              # FilterCSV() - Extract last N minutes from CSV logs
+        └── csv_test.go         # Unit tests ✅
 ```
 
 ### tmp/ Directory Rules
@@ -866,6 +873,7 @@ Hardware profile files contain GPU-specific overclocking and fan settings.
 | **Profile matching** | `overclocking/msiaf/active.go` | MatchVFCurve(), MatchProfileAgainstLive(), FindBestMatch(), ProfileMatchResult type |
 | **Offset mode detection** | `overclocking/msiaf/profile.go` | GetOffsetMode() (V-F curve analysis), GetFixedOffset(), handles +1000 MHz edge case |
 | **GPU catalog lookup** | `overclocking/msiaf/catalog/catalog.go` | LookupGPU(), LookupManufacturer(), GetFullGPUDescription() |
+| **HWInfo CSV filtering** | `overclocking/hwinfo/csv.go` | FilterCSV() - Extract last N minutes, timestamp normalization, BOM handling, footer detection |
 | **Cross-platform NVAPI** | `overclocking/nvvf/README.md` | V-F curves, GPU names, clock domains, API reference, struct layouts, OC Scanner behavior |
 | **NVAPI implementation** | `overclocking/nvvf/nvvf.go` | Shared types, VFPoint struct, parsers, ReadNvAPIVF() auto-detect |
 | **Windows NVAPI** | `overclocking/nvvf/nvvf_windows.go` | syscall.LoadDLL(), syscall.SyscallN() implementation |
