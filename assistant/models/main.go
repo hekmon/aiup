@@ -1,6 +1,7 @@
 package models
 
 import (
+	"github.com/hekmon/aiup/assistant/commands"
 	"github.com/hekmon/aiup/overclocking"
 
 	tea "charm.land/bubbletea/v2"
@@ -22,7 +23,7 @@ type main struct {
 	// Layout state
 	ready bool
 	// Config
-	selectedGPU *overclocking.GPUInfo
+	selectedGPU overclocking.GPUInfo
 	// Sub-panels
 	gpusPanel tea.Model
 	chatPanel tea.Model
@@ -85,6 +86,10 @@ func (m main) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.ready = true
 		}
 		return m, tea.Batch(cmds...)
+	case commands.GPUItem:
+		m.selectedGPU = msg.GPUInfo
+		m.gpusPanel = nil // hide wizard
+		// do not return here for the message to be processed by the info panel
 	}
 	// Route non specific messages to sub-panels
 	//// GPU selection

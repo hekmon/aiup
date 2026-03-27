@@ -1,7 +1,11 @@
 package models
 
 import (
+	"fmt"
 	"strings"
+
+	"github.com/hekmon/aiup/assistant/commands"
+	"github.com/hekmon/aiup/overclocking"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -11,7 +15,7 @@ type infoPanel struct {
 	height int
 	ready  bool
 
-	items []string
+	gpuInfos *overclocking.GPUInfo
 }
 
 func (lp infoPanel) Init() tea.Cmd {
@@ -26,6 +30,8 @@ func (lp infoPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !lp.ready {
 			lp.ready = true
 		}
+	case commands.GPUItem:
+		lp.gpuInfos = &msg.GPUInfo
 	}
 	return lp, nil
 }
@@ -40,7 +46,18 @@ func (lp infoPanel) View() (v tea.View) {
 	// Build panel content
 	lines := []string{"📋 Info Panel"}
 	lines = append(lines, "")
-	lines = append(lines, "No items to display")
+	if lp.gpuInfos != nil {
+		// GPU name
+		lines = append(lines, fmt.Sprintf("\t💻 GPU:          %s", lp.gpuInfos.Name))
+		// Manufacturer
+		lines = append(lines, fmt.Sprintf("\t🏭 Manufacturer: %s", lp.gpuInfos.Manufacturer))
+		// PCIe address
+		lines = append(lines, fmt.Sprintf("\t🔌 PCIe:         %d:%d:%d",
+			lp.gpuInfos.BusNumber, lp.gpuInfos.DeviceNumber, lp.gpuInfos.FunctionNumber),
+		)
+	} else {
+		lines = append(lines, "No GPU selected.")
+	}
 	// Render panel
 	v.SetContent(infoPanelStyle.Render(strings.Join(lines, "\n")))
 	return

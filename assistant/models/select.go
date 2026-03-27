@@ -54,6 +54,12 @@ func (g *gpuSelect) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		g.gpusPanel.StopSpinner()
 		// TODO handle warning and error
 		return g, tea.Batch(cmds...)
+	case tea.KeyPressMsg:
+		if g.ready && len(g.gpusPanel.Items()) > 0 && msg.String() == "enter" {
+			return g, func() tea.Msg {
+				return g.gpusPanel.SelectedItem().(commands.GPUItem)
+			}
+		}
 	}
 	// Standard update, let it flow
 	g.gpusPanel, cmd = g.gpusPanel.Update(msg)
