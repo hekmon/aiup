@@ -9,6 +9,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.2
 	charm.land/lipgloss/v2 v2.0.2
 	github.com/hekmon/aiup v1.0.0
+	github.com/muesli/reflow v0.3.0
 )
 
 require (

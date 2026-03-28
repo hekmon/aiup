@@ -30,7 +30,12 @@ func GPUDiscovery(profilesDir string) tea.Cmd {
 				}
 			}
 			dr.Warnings = results.Errors
+			dr.Warnings = []string{
+				"Test warning 1",
+				"Test warning 2 over a much much longer line that will wrap around to the next line if the terminal is not wide enough to contain it all because we need to test that too, right?",
+			}
 		}
+		dr.Err = fmt.Errorf("GPU discovery failed: TEST ERROR")
 		time.Sleep(3 * time.Second)
 		return dr
 	}

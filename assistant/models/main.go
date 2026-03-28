@@ -27,7 +27,7 @@ type main struct {
 	// Sub-panels
 	gpusPanel tea.Model
 	chatPanel tea.Model
-	infoPanel tea.Model
+	sidePanel tea.Model
 }
 
 func (m main) Init() tea.Cmd {
@@ -44,7 +44,7 @@ func (m main) Init() tea.Cmd {
 	if cmd = m.chatPanel.Init(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
-	if cmd = m.infoPanel.Init(); cmd != nil {
+	if cmd = m.sidePanel.Init(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	return tea.Batch(cmds...)
@@ -70,14 +70,14 @@ func (m main) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 		// Update main viewports
-		infoPanelWidth := msg.Width / 3
+		sidePanelWidth := msg.Width / 3
 		m.chatPanel, cmd = m.chatPanel.Update(tea.WindowSizeMsg{
-			Width:  msg.Width - infoPanelWidth,
+			Width:  msg.Width - sidePanelWidth,
 			Height: msg.Height,
 		})
 		cmds = append(cmds, cmd)
-		m.infoPanel, cmd = m.infoPanel.Update(tea.WindowSizeMsg{
-			Width:  infoPanelWidth,
+		m.sidePanel, cmd = m.sidePanel.Update(tea.WindowSizeMsg{
+			Width:  sidePanelWidth,
 			Height: msg.Height,
 		})
 		cmds = append(cmds, cmd)
@@ -101,7 +101,7 @@ func (m main) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.chatPanel, cmd = m.chatPanel.Update(msg)
 	cmds = append(cmds, cmd)
 	//// Info panel
-	m.infoPanel, cmd = m.infoPanel.Update(msg)
+	m.sidePanel, cmd = m.sidePanel.Update(msg)
 	cmds = append(cmds, cmd)
 	// Return to the application updated model and commands to execute
 	return m, tea.Batch(cmds...)
@@ -122,7 +122,7 @@ func (m main) View() (v tea.View) {
 			lipgloss.JoinHorizontal(
 				lipgloss.Top,
 				m.chatPanel.View().Content,
-				m.infoPanel.View().Content,
+				m.sidePanel.View().Content,
 			),
 		)
 	}

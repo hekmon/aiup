@@ -10,6 +10,6 @@ func NewMainModel(msiProfilesDir string) tea.Model {
 			profilesDir: msiProfilesDir,
 		},
 		chatPanel: chatPanel{},
-		infoPanel: infoPanel{},
+		sidePanel: sidePanel{},
 	}
 }

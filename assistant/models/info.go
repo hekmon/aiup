@@ -1,64 +1,101 @@
 package models
 
 import (
-	"fmt"
-	"strings"
-
-	"github.com/hekmon/aiup/assistant/commands"
-	"github.com/hekmon/aiup/overclocking"
-
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/muesli/reflow/wordwrap"
 )
 
-type infoPanel struct {
-	width  int
-	height int
-	ready  bool
+type infoType uint8
 
-	gpuInfos *overclocking.GPUInfo
+const (
+	infoTypeInfo infoType = iota
+	infoTypeWarning
+	infoTypeError
+)
+
+var (
+	infoBaseStyle = lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder()).
+			Padding(0, 1)
+
+	infoColor       = lipgloss.Color("75") // Blue
+	infoWidgetStyle = infoBaseStyle.BorderForeground(infoColor)
+	infoTitleStyle  = lipgloss.NewStyle().
+			Foreground(infoColor).
+			Bold(true)
+	infoTitle = infoTitleStyle.Render("ℹ️  Information")
+
+	warningColor       = lipgloss.Color("214") // Orange
+	warningWidgetStyle = infoBaseStyle.BorderForeground(warningColor)
+	warningTitleStyle  = lipgloss.NewStyle().
+				Foreground(warningColor).
+				Bold(true)
+	warningTitle = warningTitleStyle.Render("⚠  Warning")
+
+	errorColor       = lipgloss.Color("196") // Red
+	errorWidgetStyle = infoBaseStyle.BorderForeground(errorColor)
+	errorTitleStyle  = lipgloss.NewStyle().
+				Foreground(errorColor).
+				Bold(true)
+	errorTitle = errorTitleStyle.Render("❌  Error")
+)
+
+type info struct {
+	// config
+	PanelType infoType
+	Message   string
+	// state
+	title string
+	style lipgloss.Style
+	width int
 }
 
-func (lp infoPanel) Init() tea.Cmd {
+func (i *info) Init() tea.Cmd {
+	switch i.PanelType {
+	case infoTypeError:
+		i.title = errorTitle
+		i.style = errorWidgetStyle
+	case infoTypeWarning:
+		i.title = warningTitle
+		i.style = warningWidgetStyle
+	case infoTypeInfo:
+		fallthrough
+	default:
+		i.title = infoTitle
+		i.style = infoWidgetStyle
+	}
 	return nil
 }
 
-func (lp infoPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (i *info) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// var (
+	// 	cmd  tea.Cmd
+	// 	cmds []tea.Cmd
+	// )
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		// TODO
 	case tea.WindowSizeMsg:
-		lp.width = msg.Width
-		lp.height = msg.Height
-		if !lp.ready {
-			lp.ready = true
-		}
-	case commands.GPUItem:
-		lp.gpuInfos = &msg.GPUInfo
+		frameSizeHorizontal := i.style.GetHorizontalFrameSize()
+		i.width = msg.Width - frameSizeHorizontal
 	}
-	return lp, nil
+	return i, nil
 }
 
-func (lp infoPanel) View() (v tea.View) {
-	if !lp.ready {
-		v.SetContent(panelStyle.Render("Info panel loading..."))
-		return
-	}
-	// Panel dynamic size
-	infoPanelStyle := panelStyle.Width(lp.width).Height(lp.height)
-	// Build panel content
-	lines := []string{"📋 Info Panel"}
-	lines = append(lines, "")
-	if lp.gpuInfos != nil {
-		// GPU name
-		lines = append(lines, fmt.Sprintf("\t💻 GPU:          %s", lp.gpuInfos.Name))
-		// Manufacturer
-		lines = append(lines, fmt.Sprintf("\t🏭 Manufacturer: %s", lp.gpuInfos.Manufacturer))
-		// PCIe address
-		lines = append(lines, fmt.Sprintf("\t🔌 PCIe:         %d:%d:%d",
-			lp.gpuInfos.BusNumber, lp.gpuInfos.DeviceNumber, lp.gpuInfos.FunctionNumber),
-		)
+func (i *info) View() (v tea.View) {
+	var title, message string
+	if i.width > 0 {
+		title = wordwrap.String(i.title, i.width)
+		message = wordwrap.String(i.Message, i.width)
 	} else {
-		lines = append(lines, "No GPU selected.")
+		title = i.title
+		message = i.Message
 	}
-	// Render panel
-	v.SetContent(infoPanelStyle.Render(strings.Join(lines, "\n")))
+	v.SetContent(
+		i.style.Render(
+			title + "\n\n" + message,
+		),
+	)
 	return
 }
