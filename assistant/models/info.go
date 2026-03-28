@@ -24,47 +24,36 @@ var (
 	infoTitleStyle  = lipgloss.NewStyle().
 			Foreground(infoColor).
 			Bold(true)
-	infoTitle = infoTitleStyle.Render("ℹ️  Information")
+	infoTitleIconPrefix = "ℹ️  "
+	infoTitleDefault    = "Information"
 
 	warningColor       = lipgloss.Color("214") // Orange
 	warningWidgetStyle = infoBaseStyle.BorderForeground(warningColor)
 	warningTitleStyle  = lipgloss.NewStyle().
 				Foreground(warningColor).
 				Bold(true)
-	warningTitle = warningTitleStyle.Render("⚠  Warning")
+	warningTitleIconPrefix = "⚠  "
+	warningTitleDefault    = "Warning"
 
 	errorColor       = lipgloss.Color("196") // Red
 	errorWidgetStyle = infoBaseStyle.BorderForeground(errorColor)
 	errorTitleStyle  = lipgloss.NewStyle().
 				Foreground(errorColor).
 				Bold(true)
-	errorTitle = errorTitleStyle.Render("❌  Error")
+	errorTitleIconPrefix = "❌  "
+	errorTitleDefault    = "Error"
 )
 
 type info struct {
 	// config
 	PanelType infoType
+	Title     string
 	Message   string
 	// state
-	title string
-	style lipgloss.Style
 	width int
 }
 
 func (i *info) Init() tea.Cmd {
-	switch i.PanelType {
-	case infoTypeError:
-		i.title = errorTitle
-		i.style = errorWidgetStyle
-	case infoTypeWarning:
-		i.title = warningTitle
-		i.style = warningWidgetStyle
-	case infoTypeInfo:
-		fallthrough
-	default:
-		i.title = infoTitle
-		i.style = infoWidgetStyle
-	}
 	return nil
 }
 
@@ -77,23 +66,67 @@ func (i *info) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.BackgroundColorMsg:
 		// TODO
 	case tea.WindowSizeMsg:
-		frameSizeHorizontal := i.style.GetHorizontalFrameSize()
-		i.width = msg.Width - frameSizeHorizontal
+		i.width = msg.Width
 	}
 	return i, nil
 }
 
 func (i *info) View() (v tea.View) {
-	var title, message string
-	if i.width > 0 {
-		title = wordwrap.String(i.title, i.width)
-		message = wordwrap.String(i.Message, i.width)
+	// Select style
+	var panelStyle, titleStyle lipgloss.Style
+	switch i.PanelType {
+	case infoTypeError:
+		panelStyle = errorWidgetStyle
+		titleStyle = errorTitleStyle
+	case infoTypeWarning:
+		panelStyle = warningWidgetStyle
+		titleStyle = warningTitleStyle
+	case infoTypeInfo:
+		fallthrough
+	default:
+		panelStyle = infoWidgetStyle
+		titleStyle = infoTitleStyle
+	}
+	// Prepare title
+	var title, styledTitle string
+	switch i.PanelType {
+	case infoTypeError:
+		title = errorTitleIconPrefix
+	case infoTypeWarning:
+		title = warningTitleIconPrefix
+	case infoTypeInfo:
+		fallthrough
+	default:
+		title = infoTitleIconPrefix
+	}
+	if i.Title != "" {
+		title += i.Title
 	} else {
-		title = i.title
+		switch i.PanelType {
+		case infoTypeError:
+			title += errorTitleDefault
+		case infoTypeWarning:
+			title += warningTitleDefault
+		case infoTypeInfo:
+			fallthrough
+		default:
+			title += infoTitleDefault
+		}
+	}
+	styledTitle = titleStyle.Render(title)
+	// Adapt wraping and set message
+	maxWidth := i.width - panelStyle.GetHorizontalFrameSize()
+	var message string
+	if i.width > 0 {
+		title = wordwrap.String(styledTitle, maxWidth)
+		message = wordwrap.String(i.Message, maxWidth)
+	} else {
+		title = styledTitle
 		message = i.Message
 	}
+	// Render
 	v.SetContent(
-		i.style.Render(
+		panelStyle.Render(
 			title + "\n\n" + message,
 		),
 	)

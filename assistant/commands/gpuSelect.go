@@ -2,7 +2,6 @@ package commands
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/hekmon/aiup/overclocking"
 
@@ -13,7 +12,7 @@ import (
 type DiscoveryResult struct {
 	GPUs     []list.Item
 	Warnings []string
-	Err      error
+	Error    error
 }
 
 func GPUDiscovery(profilesDir string) tea.Cmd {
@@ -22,7 +21,7 @@ func GPUDiscovery(profilesDir string) tea.Cmd {
 			results *overclocking.DiscoveryResult
 			dr      DiscoveryResult
 		)
-		if results, dr.Err = overclocking.ScanGPUs(profilesDir); dr.Err == nil {
+		if results, dr.Error = overclocking.ScanGPUs(profilesDir); dr.Error == nil {
 			dr.GPUs = make([]list.Item, len(results.GPUs))
 			for idx, gpuInfos := range results.GPUs {
 				dr.GPUs[idx] = GPUItem{
@@ -30,13 +29,13 @@ func GPUDiscovery(profilesDir string) tea.Cmd {
 				}
 			}
 			dr.Warnings = results.Errors
-			dr.Warnings = []string{
-				"Test warning 1",
-				"Test warning 2 over a much much longer line that will wrap around to the next line if the terminal is not wide enough to contain it all because we need to test that too, right?",
-			}
+			// dr.Warnings = []string{
+			// 	"Test warning 1",
+			// 	"Test warning 2 over a much much longer line that will wrap around to the next line if the terminal is not wide enough to contain it all because we need to test that too, right?",
+			// }
 		}
-		dr.Err = fmt.Errorf("GPU discovery failed: TEST ERROR")
-		time.Sleep(3 * time.Second)
+		// dr.Error = fmt.Errorf("TEST ERROR")
+		// time.Sleep(3 * time.Second)
 		return dr
 	}
 }

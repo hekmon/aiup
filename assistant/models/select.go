@@ -75,8 +75,14 @@ func (g *gpuSelect) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return g, tea.Batch(cmds...)
 	case commands.DiscoveryResult:
-		// Sets the results
 		g.gpusPanel.StopSpinner()
+		// If only one GPU and no warning, and no error, go
+		if len(msg.GPUs) == 1 && len(msg.Warnings) == 0 && msg.Error == nil {
+			return g, func() tea.Msg {
+				return msg.GPUs[0].(commands.GPUItem)
+			}
+		}
+		// Set the GPU list
 		if len(msg.GPUs) > 0 {
 			cmds = append(cmds, g.gpusPanel.SetItems(msg.GPUs))
 		}
@@ -90,7 +96,6 @@ func (g *gpuSelect) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				PanelType: infoTypeWarning,
 				Message:   formatListDotted(msg.Warnings, 0),
 			}
-			cmds = append(cmds, g.warningPanel.Init())
 			// Update its size
 			model, cmd = g.warningPanel.Update(tea.WindowSizeMsg{
 				Width:  innerWidth,
@@ -105,12 +110,12 @@ func (g *gpuSelect) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			)
 		}
 		// Errors
-		if msg.Err != nil {
+		if msg.Error != nil {
 			g.errorPanel = &info{
 				PanelType: infoTypeError,
-				Message:   msg.Err.Error(),
+				Title:     "GPU discovery failed",
+				Message:   msg.Error.Error(),
 			}
-			cmds = append(cmds, g.errorPanel.Init())
 			// Update its size
 			model, cmd = g.errorPanel.Update(tea.WindowSizeMsg{
 				Width:  innerWidth,
@@ -122,10 +127,7 @@ func (g *gpuSelect) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return g, tea.Batch(cmds...)
 	case tea.KeyPressMsg:
 		if msg.String() == "enter" {
-			if g.errorPanel != nil {
-				return g, tea.Quit
-			}
-			if g.ready && len(g.gpusPanel.Items()) > 0 {
+			if g.ready && g.errorPanel != nil && len(g.gpusPanel.Items()) > 0 {
 				return g, func() tea.Msg {
 					return g.gpusPanel.SelectedItem().(commands.GPUItem)
 				}
