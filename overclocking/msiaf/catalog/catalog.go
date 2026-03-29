@@ -31,7 +31,7 @@ func LookupGPU(vendorID, deviceID string) GPUInfo {
 
 	// Return unknown GPU info with raw IDs for display
 	return GPUInfo{
-		VendorName: lookupVendorName(vendorID),
+		VendorName: LookupVendorName(vendorID),
 		GPUName:    "Unknown GPU (DEV_" + deviceID + ")",
 		IsKnown:    false,
 	}
@@ -55,8 +55,9 @@ func LookupManufacturer(subsystemID string) string {
 	return "Unknown (VID_" + vendorCode + ")"
 }
 
-// lookupVendorName returns the vendor name from a VendorID.
-func lookupVendorName(vendorID string) string {
+// LookupVendorName returns the vendor name from a VendorID.
+// Exported for use by other packages.
+func LookupVendorName(vendorID string) string {
 	switch vendorID {
 	case "10DE":
 		return "NVIDIA"
