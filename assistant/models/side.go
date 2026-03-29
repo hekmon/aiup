@@ -6,8 +6,36 @@ import (
 
 	"github.com/hekmon/aiup/assistant/commands"
 	"github.com/hekmon/aiup/overclocking"
+	"github.com/hekmon/aiup/overclocking/msiaf/catalog"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+)
+
+var (
+	// // Side panel base style
+	// sidePanelBaseStyle = lipgloss.NewStyle().
+	// 			BorderStyle(lipgloss.RoundedBorder()).
+	// 			Padding(1, 1)
+
+	sidePanelColor       = lipgloss.Color("69") // Medium blue
+	sidePanelWidgetStyle = panelStyle.BorderForeground(sidePanelColor)
+	sidePanelTitleStyle  = lipgloss.NewStyle().
+				Foreground(sidePanelColor).
+				Bold(true)
+	sidePanelTitleIconPrefix = "📋 "
+	sidePanelTitleDefault    = "GPU Information"
+
+	// Section styles
+	sectionLabelStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("249")). // Gray
+				Bold(true)
+
+	// Detail row styles
+	detailLabelStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("144")) // Muted gray
+	detailValueStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("231")) // Light gray/white
 )
 
 type sidePanel struct {
@@ -38,27 +66,101 @@ func (lp sidePanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (lp sidePanel) View() (v tea.View) {
 	if !lp.ready {
-		v.SetContent(panelStyle.Render("Info panel loading..."))
+		v.SetContent(sidePanelWidgetStyle.Render("Loading..."))
 		return
 	}
+
 	// Panel dynamic size
-	sidePanelStyle := panelStyle.Width(lp.width).Height(lp.height)
+	sidePanelStyle := sidePanelWidgetStyle.Width(lp.width).Height(lp.height)
+
 	// Build panel content
-	lines := []string{"📋 Info Panel"}
-	lines = append(lines, "")
+	var content strings.Builder
+
+	// Title
+	title := sidePanelTitleIconPrefix + sidePanelTitleDefault
+	styledTitle := sidePanelTitleStyle.Render(title)
+	content.WriteString(styledTitle)
+	content.WriteString("\n\n")
+
 	if lp.gpuInfos != nil {
-		// GPU name
-		lines = append(lines, fmt.Sprintf("\t💻 GPU:          %s", lp.gpuInfos.Name))
-		// Manufacturer
-		lines = append(lines, fmt.Sprintf("\t🏭 Manufacturer: %s", lp.gpuInfos.Manufacturer))
-		// PCIe address
-		lines = append(lines, fmt.Sprintf("\t🔌 PCIe:         %d:%d:%d",
-			lp.gpuInfos.BusNumber, lp.gpuInfos.DeviceNumber, lp.gpuInfos.FunctionNumber),
-		)
+		// GPU Information Section (includes PCI IDs)
+		content.WriteString(lp.renderGPUSection())
 	} else {
-		lines = append(lines, "No GPU selected.")
+		content.WriteString(sectionLabelStyle.Render("No GPU selected."))
 	}
+
 	// Render panel
-	v.SetContent(sidePanelStyle.Render(strings.Join(lines, "\n")))
+	v.SetContent(sidePanelStyle.Render(content.String()))
 	return
+}
+
+func (lp sidePanel) renderGPUSection() string {
+	width := lp.width - panelStyle.GetHorizontalFrameSize()
+	var content strings.Builder
+	content.WriteString("\n")
+	content.WriteString(lp.formatDetail(
+		"Vendor ID", lp.formatPCIVendor(lp.gpuInfos.VendorID), width,
+	))
+	content.WriteString(lp.formatDetail(
+		"Device ID", lp.formatPCIDevice(lp.gpuInfos.VendorID, lp.gpuInfos.DeviceID), width,
+	))
+	content.WriteString(lp.formatDetail(
+		"Subsystem ID", lp.formatPCISubsystem(lp.gpuInfos.SubsystemID), width,
+	))
+	content.WriteString(lp.formatDetail(
+		"PCIe Address", fmt.Sprintf("%d:%d:%d",
+			lp.gpuInfos.BusNumber,
+			lp.gpuInfos.DeviceNumber,
+			lp.gpuInfos.FunctionNumber,
+		), width,
+	))
+	content.WriteString(lp.formatDetail(
+		"NvAPI Index", fmt.Sprintf("%d", lp.gpuInfos.Index), width,
+	))
+	return content.String()
+}
+
+func (lp sidePanel) formatDetail(label, value string, width int) string {
+	if value == "" {
+		return ""
+	}
+	leftFillers := ((width - 1) / 2) - lipgloss.Width(label)
+	var content strings.Builder
+	content.Grow(width + 1)
+	content.WriteString(strings.Repeat(" ", leftFillers))
+	content.WriteString(detailLabelStyle.Render(label))
+	content.WriteRune(nonBreakingSpace)
+	content.WriteString(detailValueStyle.Render(value))
+	content.WriteString("\n")
+	return content.String()
+}
+
+func (lp sidePanel) formatPCIVendor(vendorID string) string {
+	if vendorID == "" {
+		return ""
+	}
+	// Lookup vendor name from catalog
+	vendorName := catalog.LookupVendorName(vendorID)
+	return fmt.Sprintf("%s (%s)", vendorID, vendorName)
+}
+
+func (lp sidePanel) formatPCIDevice(vendorID, deviceID string) string {
+	if deviceID == "" {
+		return ""
+	}
+	// Lookup GPU name from catalog
+	gpuInfo := catalog.LookupGPU(vendorID, deviceID)
+	if gpuInfo.IsKnown {
+		return fmt.Sprintf("%s (%s)", deviceID, gpuInfo.GPUName)
+	}
+	return fmt.Sprintf("%s (Unknown)", deviceID)
+}
+
+func (lp sidePanel) formatPCISubsystem(subsystemID string) string {
+	if subsystemID == "" {
+		return ""
+	}
+	// Lookup manufacturer from subsystem ID
+	manufacturer := catalog.LookupManufacturer(subsystemID)
+	return fmt.Sprintf("%s (%s)", subsystemID, manufacturer)
 }

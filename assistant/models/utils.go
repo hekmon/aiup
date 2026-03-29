@@ -3,6 +3,7 @@ package models
 import "strings"
 
 const (
+	nonBreakingSpace = ' '
 	listDottedPrefix = "• "
 )
 
