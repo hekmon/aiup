@@ -27,18 +27,13 @@ type gpuSelect struct {
 }
 
 func (g *gpuSelect) Init() tea.Cmd {
-	var (
-		// cmd  tea.Cmd
-		cmds []tea.Cmd
-	)
 	g.gpusPanel = list.New(nil, list.NewDefaultDelegate(), 0, 0)
 	g.gpusPanel.Title = "Select the GPU you want to work with"
 	g.gpusPanel.SetStatusBarItemName("GPU", "GPUs")
-	cmds = append(cmds,
+	return tea.Batch(
 		g.gpusPanel.StartSpinner(),
 		commands.GPUDiscovery(g.profilesDir),
 	)
-	return tea.Batch(cmds...)
 }
 
 func (g *gpuSelect) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
