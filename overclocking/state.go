@@ -8,15 +8,6 @@ import (
 	"github.com/hekmon/aiup/overclocking/nvvf"
 )
 
-// SavedProfileInfo indicates which profile slot matches the current curve.
-// This is informational - helps the user decide where to save modifications.
-// All fields are JSON-serializable for MCP/API compatibility.
-type SavedProfileInfo struct {
-	SlotNumber int     `json:"slot_number"` // 1-5 (Profile1-5)
-	SlotName   string  `json:"slot_name"`   // "Profile1", "Profile2", etc.
-	Confidence float64 `json:"confidence"`  // Match confidence (0.0-1.0)
-}
-
 // CurrentStateResult contains the complete current GPU overclocking state.
 // This includes the V-F curve, memory overclock, power limit, and fan settings.
 // All fields are JSON-serializable for MCP/API compatibility.
@@ -37,6 +28,30 @@ type CurrentStateResult struct {
 	// Profile matching info
 	LiveMatchesStartup bool              `json:"live_matches_startup"` // true if live curve matches Startup profile
 	Profile            *SavedProfileInfo `json:"profile"`              // Which saved profile slot matches (null if none)
+}
+
+// VFPoint represents a single voltage-frequency point with all components explicit.
+// This structure is designed for AI agent consumption - all values are in MHz except voltage.
+//
+// Key insight: OffsetMHz is the CORE overclocking value that gets set/modified.
+// EffectiveFreqMHz = BaseFreqMHz + OffsetMHz
+type VFPoint struct {
+	VoltageMV   float64 `json:"voltage_mv"`    // Voltage point (e.g., 850.0 mV)
+	BaseFreqMHz float64 `json:"base_freq_mhz"` // Hardware base frequency at this voltage
+	OffsetMHz   float64 `json:"offset_mhz"`    // Overclock offset applied (THE CORE VALUE)
+}
+
+func (vfp VFPoint) EffectiveFreqMHz() float64 {
+	return vfp.BaseFreqMHz + vfp.OffsetMHz
+}
+
+// SavedProfileInfo indicates which profile slot matches the current curve.
+// This is informational - helps the user decide where to save modifications.
+// All fields are JSON-serializable for MCP/API compatibility.
+type SavedProfileInfo struct {
+	SlotNumber int     `json:"slot_number"` // 1-5 (Profile1-5)
+	SlotName   string  `json:"slot_name"`   // "Profile1", "Profile2", etc.
+	Confidence float64 `json:"confidence"`  // Match confidence (0.0-1.0)
 }
 
 // GetCurrentState reads the complete current GPU overclocking state from the GPU and profile.
