@@ -77,9 +77,13 @@ func (lp sidePanel) View() (v tea.View) {
 	var content strings.Builder
 
 	// Title
-	title := sidePanelTitleIconPrefix + sidePanelTitleDefault
-	styledTitle := sidePanelTitleStyle.Render(title)
-	content.WriteString(styledTitle)
+	var title string
+	if lp.gpuInfos != nil && lp.gpuInfos.FullDescription != "" {
+		title = lp.gpuInfos.FullDescription
+	} else {
+		title = "GPU Information"
+	}
+	content.WriteString(sidePanelTitleStyle.Render(sidePanelTitleIconPrefix + title))
 	content.WriteString("\n\n")
 
 	if lp.gpuInfos != nil {
@@ -97,7 +101,6 @@ func (lp sidePanel) View() (v tea.View) {
 func (lp sidePanel) renderGPUSection() string {
 	width := lp.width - panelStyle.GetHorizontalFrameSize()
 	var content strings.Builder
-	content.WriteString("\n")
 	content.WriteString(lp.formatDetail(
 		"Vendor ID", lp.formatPCIVendor(lp.gpuInfos.VendorID), width,
 	))
@@ -124,7 +127,8 @@ func (lp sidePanel) formatDetail(label, value string, width int) string {
 	if value == "" {
 		return ""
 	}
-	leftFillers := ((width - 1) / 2) - lipgloss.Width(label)
+	leftFillers := (width / 3) - lipgloss.Width(label)
+	leftFillers = max(leftFillers, 0)
 	var content strings.Builder
 	content.Grow(width + 1)
 	content.WriteString(strings.Repeat(" ", leftFillers))
