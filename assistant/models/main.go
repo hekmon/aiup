@@ -13,10 +13,11 @@ const (
 )
 
 var (
-	panelStyle = lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("69")).
-		Padding(1, 2)
+	panelBorderColor = lipgloss.Color("69")
+	panelStyle       = lipgloss.NewStyle().
+				BorderStyle(lipgloss.RoundedBorder()).
+				BorderForeground(panelBorderColor).
+				Padding(1, 2)
 )
 
 type main struct {

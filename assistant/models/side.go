@@ -3,6 +3,7 @@ package models
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hekmon/aiup/assistant/commands"
 	"github.com/hekmon/aiup/overclocking"
@@ -13,18 +14,11 @@ import (
 )
 
 var (
-	// // Side panel base style
-	// sidePanelBaseStyle = lipgloss.NewStyle().
-	// 			BorderStyle(lipgloss.RoundedBorder()).
-	// 			Padding(1, 1)
-
-	sidePanelColor       = lipgloss.Color("69") // Medium blue
-	sidePanelWidgetStyle = panelStyle.BorderForeground(sidePanelColor)
-	sidePanelTitleStyle  = lipgloss.NewStyle().
-				Foreground(sidePanelColor).
+	sidePanelTitleStyle = lipgloss.NewStyle().
+				Foreground(panelBorderColor).
 				Bold(true)
 	sidePanelTitleIconPrefix = "📋 "
-	sidePanelTitleDefault    = "GPU Information"
+	sidePanelTitleDefault    = "GPU Informations"
 
 	// Section styles
 	sectionLabelStyle = lipgloss.NewStyle().
@@ -44,6 +38,7 @@ type sidePanel struct {
 	ready  bool
 
 	gpuInfos *overclocking.GPUInfo
+	gpuState *overclocking.CurrentStateResult
 }
 
 func (lp sidePanel) Init() tea.Cmd {
@@ -58,41 +53,56 @@ func (lp sidePanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !lp.ready {
 			lp.ready = true
 		}
+		return lp, nil
 	case commands.GPUItem:
 		lp.gpuInfos = &msg.GPUInfo
+		// Immediately get the current state
+		return lp, commands.GetCurrentState(lp.gpuInfos.Index, lp.gpuInfos.ProfilePath)
+	case commands.CurrentState:
+		if msg.Error == nil {
+			lp.gpuState = msg.State
+		} else {
+			lp.gpuState = nil
+			// TODO, show error
+		}
+		// start/continue ticking for updates
+		return lp, tea.Tick(time.Second, func(t time.Time) tea.Msg {
+			return commands.GetCurrentStateRaw(lp.gpuInfos.Index, lp.gpuInfos.ProfilePath)
+		})
 	}
 	return lp, nil
 }
 
 func (lp sidePanel) View() (v tea.View) {
 	if !lp.ready {
-		v.SetContent(sidePanelWidgetStyle.Render("Loading..."))
+		v.SetContent(panelStyle.Render("Loading..."))
 		return
 	}
-
 	// Panel dynamic size
-	sidePanelStyle := sidePanelWidgetStyle.Width(lp.width).Height(lp.height)
-
+	sidePanelStyle := panelStyle.Width(lp.width).Height(lp.height)
 	// Build panel content
 	var content strings.Builder
-
 	// Title
 	var title string
 	if lp.gpuInfos != nil && lp.gpuInfos.FullDescription != "" {
 		title = lp.gpuInfos.FullDescription
 	} else {
-		title = "GPU Information"
+		title = sidePanelTitleDefault
 	}
 	content.WriteString(sidePanelTitleStyle.Render(sidePanelTitleIconPrefix + title))
 	content.WriteString("\n\n")
-
+	// Hardware Information Section
 	if lp.gpuInfos != nil {
 		// GPU Information Section (includes PCI IDs)
 		content.WriteString(lp.renderGPUSection())
+		// GPU State Section
+		if lp.gpuState != nil {
+			content.WriteString("\n")
+			content.WriteString(lp.renderStateSection())
+		}
 	} else {
 		content.WriteString(sectionLabelStyle.Render("No GPU selected."))
 	}
-
 	// Render panel
 	v.SetContent(sidePanelStyle.Render(content.String()))
 	return
@@ -167,4 +177,42 @@ func (lp sidePanel) formatPCISubsystem(subsystemID string) string {
 	// Lookup manufacturer from subsystem ID
 	manufacturer := catalog.LookupManufacturer(subsystemID)
 	return fmt.Sprintf("%s (%s)", subsystemID, manufacturer)
+}
+
+func (lp sidePanel) renderStateSection() string {
+	width := lp.width - panelStyle.GetHorizontalFrameSize()
+	var content strings.Builder
+	if lp.gpuState.LiveMatchesStartup {
+		content.WriteString(lp.formatDetail(
+			"MSI AF Sync", "✅", width,
+		))
+	} else {
+		content.WriteString(lp.formatDetail(
+			"MSI AF Sync", "❗", width,
+		))
+	}
+	if lp.gpuState.Profile == nil {
+		content.WriteString(lp.formatDetail(
+			"Profile", "⚠️ startup profile only", width,
+		))
+	} else if lp.gpuState.Profile.Confidence == 1 {
+		content.WriteString(lp.formatDetail(
+			"Profile", fmt.Sprintf("#%d", lp.gpuState.Profile.SlotNumber), width,
+		))
+	} else {
+		content.WriteString(lp.formatDetail(
+			"Profile",
+			fmt.Sprintf("%s (⚠️ %0.0f%% confidence)", lp.gpuState.Profile.SlotName, lp.gpuState.Profile.Confidence*100),
+			width,
+		))
+	}
+	content.WriteString(lp.formatDetail(
+		"Power Limit", fmt.Sprintf("%d%%", lp.gpuState.PowerLimitPercent), width,
+	))
+	content.WriteString(
+		lp.formatDetail(
+			"Mem Clock Boost", fmt.Sprintf("+%d MHz", lp.gpuState.MemClkBoostMHz), width,
+		),
+	)
+	return content.String()
 }
