@@ -14,17 +14,13 @@ import (
 type CurrentStateResult struct {
 	// V-F Curve (core overclock)
 	Points []VFPoint `json:"points"` // All voltage points with offsets
-
 	// Memory overclock
 	MemClkBoostMHz int `json:"mem_clk_boost_mhz"` // Memory clock offset in MHz (e.g., 3000)
-
 	// Power and thermal limits
 	PowerLimitPercent int `json:"power_limit_percent"` // Power limit percentage (e.g., 100)
-
 	// Fan settings
-	FanMode         string `json:"fan_mode"`          // "auto" or "manual"
-	FanSpeedPercent *int   `json:"fan_speed_percent"` // Manual fan speed (0-100) if in manual mode
-
+	FanMode         FanMode `json:"fan_mode"`          // "auto" or "manual"
+	FanSpeedPercent *int    `json:"fan_speed_percent"` // Manual fan speed (0-100) if in manual mode
 	// Profile matching info
 	LiveMatchesStartup bool              `json:"live_matches_startup"` // true if live curve matches Startup profile
 	Profile            *SavedProfileInfo `json:"profile"`              // Which saved profile slot matches (null if none)
@@ -44,6 +40,17 @@ type VFPoint struct {
 func (vfp VFPoint) EffectiveFreqMHz() float64 {
 	return vfp.BaseFreqMHz + vfp.OffsetMHz
 }
+
+// FanMode represents the GPU fan control mode.
+// This is a string-based enum for type safety and JSON compatibility.
+type FanMode string
+
+const (
+	// FanModeAuto indicates automatic fan control (temperature-based curve).
+	FanModeAuto FanMode = "auto"
+	// FanModeManual indicates manual fan speed control (fixed percentage).
+	FanModeManual FanMode = "manual"
+)
 
 // SavedProfileInfo indicates which profile slot matches the current curve.
 // This is informational - helps the user decide where to save modifications.
@@ -125,7 +132,6 @@ func GetCurrentState(gpuIndex int, profilePath string) (*CurrentStateResult, err
 
 	// Extract fan settings
 	fanMode := startup.GetFanMode()
-	fanModeStr := fanMode.String()
 	var fanSpeedPercent *int
 	if fanMode == msiaf.FanModeManual {
 		fs := startup.GetFanSpeed()
@@ -185,7 +191,7 @@ func GetCurrentState(gpuIndex int, profilePath string) (*CurrentStateResult, err
 		Points:             points,
 		MemClkBoostMHz:     memClkBoostMHz,
 		PowerLimitPercent:  powerLimitPercent,
-		FanMode:            fanModeStr,
+		FanMode:            FanMode(fanMode.String()),
 		FanSpeedPercent:    fanSpeedPercent,
 		Profile:            savedProfile,
 		LiveMatchesStartup: liveMatchesStartup,
