@@ -223,10 +223,9 @@ func convertToVFPoints(curve *msiaf.VFControlCurveInfo) []VFPoint {
 	points := make([]VFPoint, len(curve.Points))
 	for i, pt := range curve.Points {
 		points[i] = VFPoint{
-			VoltageMV:        float64(pt.VoltageMV),
-			BaseFreqMHz:      float64(pt.BaseFreqMHz),
-			OffsetMHz:        float64(pt.OffsetMHz),
-			EffectiveFreqMHz: float64(pt.BaseFreqMHz + pt.OffsetMHz),
+			VoltageMV:   float64(pt.VoltageMV),
+			BaseFreqMHz: float64(pt.BaseFreqMHz),
+			OffsetMHz:   float64(pt.OffsetMHz),
 		}
 	}
 
