@@ -132,21 +132,13 @@ func (cp chatPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.BackgroundColorMsg:
 		cp.isDark = msg.IsDark()
-		if cp.isDark {
-			cp.glamourStyle = styles.DarkStyleConfig
-		} else {
-			cp.glamourStyle = styles.LightStyleConfig
-		}
-		content, gutters, err := cp.renderConversation()
+		// re compute the chat view
+		var err error
+		cp.viewport, err = cp.updateChatView()
 		if err != nil {
+			// TODO handle error
 			panic(err)
 		}
-		// TODO handle error
-		cp.viewport.LeftGutterFunc = func(info viewport.GutterContext) string {
-			return gutters[info.Index]
-		}
-		cp.viewport.SetContent(content)
-		cp.viewport.GotoBottom()
 		return cp, nil
 	case tea.KeyPressMsg:
 		if k := msg.String(); k == "ctrl+c" || k == "q" {
@@ -169,23 +161,32 @@ func (cp chatPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cp.viewport.SetWidth(innerWidth)
 		cp.viewport.SetHeight(innerHeight - lipgloss.Height(chatPanelTitle))
-		content, gutters, err := cp.renderConversation()
+		// re compute the chat view
+		var err error
+		cp.viewport, err = cp.updateChatView()
 		if err != nil {
+			// TODO handle error
 			panic(err)
 		}
-		// TODO handle error
-		cp.viewport.LeftGutterFunc = func(info viewport.GutterContext) string {
-			return gutters[info.Index]
-		}
-		cp.viewport.SetContent(content)
-		cp.viewport.GotoBottom()
 		return cp, nil
 	}
 	cp.viewport, cmd = cp.viewport.Update(msg)
 	return cp, cmd
 }
 
-func (cp chatPanel) renderConversation() (full string, gutters []string, err error) {
+func (cp chatPanel) updateChatView() (viewport.Model, error) {
+	lines, gutters, err := cp.renderConversation()
+	if err != nil {
+		return cp.viewport, err
+	}
+	cp.viewport.LeftGutterFunc = func(info viewport.GutterContext) string {
+		return gutters[info.Index]
+	}
+	cp.viewport.SetContentLines(lines)
+	return cp.viewport, nil
+}
+
+func (cp chatPanel) renderConversation() (lines []string, gutters []string, err error) {
 	// Prepare the renderer
 	innerWidth := cp.width - panelStyle.GetHorizontalFrameSize() - chatPanelViewPortStyle.GetHorizontalFrameSize() - (len(msgSourceEmpty.String()) + 1)
 	var glamourStyle ansi.StyleConfig
@@ -203,18 +204,12 @@ func (cp chatPanel) renderConversation() (full string, gutters []string, err err
 		return
 	}
 	// Use it to render the conversation
-	var (
-		rendered string
-		builder  strings.Builder
-	)
+	var rendered string
 	for index, message := range conversation {
 		// Add spacing between messages
 		if index > 0 {
-			builder.WriteString("\n")
-			newLength := nbLines(builder.String())
-			for i := len(gutters); i < newLength; i++ {
-				gutters = append(gutters, msgSourceEmpty.String()+" ")
-			}
+			lines = append(lines, "")
+			gutters = append(gutters, msgSourceEmpty.String()+" ")
 		}
 		// Render the message content
 		if rendered, err = renderer.Render(message.Content); err != nil {
@@ -227,23 +222,17 @@ func (cp chatPanel) renderConversation() (full string, gutters []string, err err
 			continue
 		}
 		// Record where this message starts
-		iconLineIndex := len(gutters)
-		// Add rendered content with a trailing newline
-		if builder.Len() > 0 {
-			builder.WriteString("\n")
-		}
-		builder.WriteString(rendered)
+		iconLineIndex := len(lines)
+		// Split rendered content into individual lines
+		messageLines := strings.Split(rendered, "\n")
+		lines = append(lines, messageLines...)
 		// Extend gutters to match the new line count
-		newLineCount := nbLines(builder.String())
-		for i := len(gutters); i < newLineCount; i++ {
+		for range messageLines {
 			gutters = append(gutters, msgSourceEmpty.String()+"│")
 		}
 		// Set the icon at the first line of this message
-		if iconLineIndex < len(gutters) {
-			gutters[iconLineIndex] = message.Source.String() + "│"
-		}
+		gutters[iconLineIndex] = message.Source.String() + "│"
 	}
-	full = builder.String()
 	return
 }
 
@@ -268,11 +257,4 @@ func (cp chatPanel) View() (v tea.View) {
 	// Render
 	v.SetContent(chatStyle.Render(chatPanelTitle + "\n" + cp.viewport.View()))
 	return
-}
-
-func nbLines(text string) (nbLines int) {
-	if text == "" {
-		return 0
-	}
-	return strings.Count(text, "\n") + 1
 }
